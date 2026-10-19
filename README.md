@@ -4,6 +4,8 @@ Watch your coding agent's subagents work live. Install once, start the agent ins
 
 Works with **omo native** and **omp** (oh-my-pi). Nothing to start by hand.
 
+> **Warning:** only tested with herdr. tmux support is implemented but has not been tested yet, so expect rough edges there.
+
 ```
 tab "1"               tab "1-subagents"
 +-----------------+   +-------------------+-------------------+
