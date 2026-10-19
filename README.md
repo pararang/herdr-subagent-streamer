@@ -22,8 +22,8 @@ tab "1"               tab "1-subagents"
 omo native:
 
 ```bash
-omo install git:github.com/<you>/herdr-subagent-streamer
-# or from a checkout:
+omo install git:github.com/pararang/herdr-subagent-streamer
+# or from a checkout (git clone https://github.com/pararang/herdr-subagent-streamer):
 omo install ./herdr-subagent-streamer
 ```
 
@@ -32,7 +32,7 @@ omo install ./herdr-subagent-streamer
 omp:
 
 ```bash
-omp plugin install ./herdr-subagent-streamer
+omp plugin install ./herdr-subagent-streamer   # from a checkout of the repo above
 # or load the extension for one run:
 omp -e ./herdr-subagent-streamer/extension/index.js
 ```
