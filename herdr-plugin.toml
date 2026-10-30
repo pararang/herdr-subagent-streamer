@@ -1,0 +1,6 @@
+id = "pararang.subagent-streamer"
+name = "Subagent Streamer"
+version = "0.1.0"
+min_herdr_version = "0.7.0"
+description = "Stream omo native and OMP subagents into a Herdr tab with a live graph and transcript panes."
+platforms = ["linux", "macos"]
