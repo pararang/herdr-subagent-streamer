@@ -1,5 +1,6 @@
 // Host adapters: turn "where does this coding agent keep its subagents" into one shape.
-//   list()            -> [{ id, name, status, category, created, started, ended, spec }]
+//   list()            -> [{ id, name, status, category, created, started, ended, spec, parent?, description? }]
+//                        parent: the spawning session's id (omo only; omp subagents all hang off the main agent)
 //   resolve(spec)     -> { status, transcript }   (used by the per-split follower)
 // Plain node builtins only, so this runs under node >= 18 and bun.
 import fs from "node:fs";
@@ -64,7 +65,7 @@ export function omoHost(sessionId) {
             const t0 = finishedAt(transcriptOf(file) ?? "");
             if (t0) { status = "completed"; ended = new Date(t0).toISOString(); }
           }
-          out.push({ id: t.task_id, name: String(t.name ?? t.task_id), status, category: t.category ?? "", created: t.created_at, started: t.started_at, ended, spec: { host: "omo", taskFile: file } });
+          out.push({ id: t.task_id, name: String(t.name ?? t.task_id), status, category: t.category ?? "", created: t.created_at, started: t.started_at, ended, parent: t.parent_session_id, description: t.description, spec: { host: "omo", taskFile: file } });
         }
       }
       return out.sort((a, b) => String(a.created).localeCompare(String(b.created)));
