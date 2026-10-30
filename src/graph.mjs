@@ -104,25 +104,51 @@ export function buildGraph({ session, tasks, acts }) {
   return { nodes, edges: [...edges, ...msgs.values()] };
 }
 
-// ---------- layout: tree on a slot grid, a parent above its middle child ----------
-// Every card sits in a slot column, so the 2-column gutter between slots never holds a card: message edges run there.
 const CARD_H = 4, GAP = 3, TOP = 2;
+const MIN_CARD_W = 14, MAX_CARD_W = 26, GUTTER = 2, MIN_COLS = 5;
+const MESSAGE_LANE_H = 2;
 
 export function layout(graph, cols) {
   const kids = new Map([...graph.nodes.keys()].map((id) => [id, []]));
   for (const n of graph.nodes.values()) if (n.parent) kids.get(n.parent).push(n.id);
-  const leaves = (id) => kids.get(id).reduce((s, k) => s + leaves(k), 0) || 1;
-  const w = Math.max(14, Math.min(26, Math.floor(cols / leaves(MAIN)) - 2));
-  const pos = new Map();
-  let slot = 0;
-  const place = (id, depth) => {
-    const ks = kids.get(id);
-    ks.forEach((k) => place(k, depth + 1));
-    const s = ks.length ? pos.get(ks[(ks.length - 1) >> 1]).slot : slot++;
-    const x = 1 + s * (w + 2);
-    pos.set(id, { slot: s, x, y: TOP + depth * (CARD_H + GAP), w, cx: x + Math.floor(w / 2) });
+  const measure = (id) => {
+    const children = kids.get(id).map(measure);
+    return { id, children, leaves: children.reduce((sum, child) => sum + child.leaves, 0) || 1 };
   };
-  place(MAIN, 0);
+  const tree = measure(MAIN);
+  const capacity = Math.min(tree.leaves, Math.max(1, Math.floor(cols / (MIN_CARD_W + GUTTER))));
+  const w = Math.min(MAX_CARD_W, Math.floor(cols / capacity) - GUTTER);
+  const pack = (tile) => {
+    let used = 0, shelfHeight = 0, band = 1, width = 1;
+    for (const child of tile.children) {
+      pack(child);
+      if (used + child.width > capacity) {
+        band += shelfHeight;
+        used = 0;
+        shelfHeight = 0;
+      }
+      child.slotOffset = used;
+      child.bandOffset = band;
+      used += child.width;
+      width = Math.max(width, used);
+      shelfHeight = Math.max(shelfHeight, child.height);
+    }
+    tile.width = width;
+    tile.height = band + shelfHeight;
+    if (!tile.children.length) tile.height = 1;
+    const firstShelf = tile.children.filter((child) => child.bandOffset === 1);
+    const middle = firstShelf[(firstShelf.length - 1) >> 1];
+    tile.rootSlot = middle ? middle.slotOffset + middle.rootSlot : 0;
+  };
+  pack(tree);
+  const pos = new Map();
+  const place = (tile, slotOffset, bandOffset) => {
+    const slot = slotOffset + tile.rootSlot;
+    const x = 1 + slot * (w + GUTTER);
+    pos.set(tile.id, { slot, x, y: TOP + bandOffset * (CARD_H + GAP), w, cx: x + Math.floor(w / 2) });
+    for (const child of tile.children) place(child, slotOffset + child.slotOffset, bandOffset + child.bandOffset);
+  };
+  place(tree, 0, 0);
   return pos;
 }
 
@@ -174,52 +200,57 @@ function route(cv, pts, style, firstStub, lastStub) {
   return cells;
 }
 
-const clipTo = (s, n) => (s.length > n ? s.slice(0, Math.max(0, n - 1)) + "…" : s);
+const clipTo = (s, n) => n <= 0 ? "" : s.length > n ? s.slice(0, n - 1) + "…" : s;
 const secs = (n, now) => Math.max(0, Math.round(((Date.parse(n.ended ?? "") || now) - (Date.parse(n.started ?? "") || now)) / 1000));
 
 function card(cv, n, p, now) {
   const color = n.id === MAIN ? "36" : STATUS[n.status] ?? "2";
   const inner = p.w - 2;
-  const title = ` ${clipTo(n.name, inner - 3)} `;
-  cv.text(p.x, p.y, "╭─" + title + "─".repeat(Math.max(0, inner - 1 - title.length)) + "╮", color);
+  const title = clipTo(`─ ${n.name} `, inner);
+  cv.text(p.x, p.y, "╭" + title + "─".repeat(inner - title.length) + "╮", color);
   cv.text(p.x, p.y + 3, "╰" + "─".repeat(inner) + "╯", color);
   for (let y = 1; y <= 2; y++) { cv.put(p.x, p.y + y, "│", color); cv.put(p.x + p.w - 1, p.y + y, "│", color); cv.text(p.x + 1, p.y + y, " ".repeat(inner)); }
   const head = n.id === MAIN ? `${n.status}` : `${n.status} ${secs(n, now)}s`;
-  cv.put(p.x + 2, p.y + 1, GLYPH[n.status] ?? "x", color);
-  cv.text(p.x + 4, p.y + 1, clipTo(head, inner - 4));
+  cv.text(p.x + 1, p.y + 1, clipTo(` ${GLYPH[n.status] ?? "x"} ${head}`, inner), color);
   const calls = `${n.tools} call${n.tools === 1 ? "" : "s"}${n.msgIn ? ` · ${n.msgIn} msg` : ""}`;
   const busy = n.tool && n.status !== "completed" ? `> ${n.tool} · ` : "";
-  cv.text(p.x + 2, p.y + 2, clipTo(busy + calls, inner - 2), "2");
+  cv.text(p.x + 1, p.y + 2, clipTo(` ${busy}${calls}`, inner), "2");
 }
 
 // view: { cols, rows, frame, now, title }
 export function render(graph, { cols = 100, rows = 30, frame = 0, now = Date.now(), title = "" } = {}) {
+  if (cols < MIN_COLS) return Array.from({ length: rows }, (_, y) => y === 0 ? clipTo("pane too narrow", cols) : "");
   const pos = layout(graph, cols);
   const span = [...pos.values()];
   const msgEdges = graph.edges.filter((e) => e.kind === "message");
   const bottom = Math.max(...span.map((p) => p.y + CARD_H));
-  const width = Math.max(cols, ...span.map((p) => p.x + p.w + 1));
-  const cv = canvas(width, Math.max(rows, bottom + msgEdges.length + 2));
-  const beads = [], arrows = [];
+  const cv = canvas(cols, Math.max(rows, bottom + msgEdges.length * MESSAGE_LANE_H + GUTTER));
+  const beads = [], arrows = [], labels = [];
 
   const spawns = graph.edges.filter((e) => e.kind === "spawn");
   const live = (e) => STATUS[graph.nodes.get(e.to).status] === "33";
   for (const e of [...spawns.filter((e) => !live(e)), ...spawns.filter(live)]) {
     const a = pos.get(e.from), b = pos.get(e.to), y = a.y + CARD_H;
-    const cells = route(cv, [[a.cx, y], [a.cx, y + 1], [b.cx, y + 1], [b.cx, y + 2]], live(e) ? "33" : "2", U, 0);
+    const pts = b.y === a.y + CARD_H + GAP
+      ? [[a.cx, y], [a.cx, y + 1], [b.cx, y + 1], [b.cx, b.y - 1]]
+      : [[a.cx, y], [a.cx, y + 1], [a.x - 1, y + 1], [a.x - 1, b.y - 2], [b.cx, b.y - 2], [b.cx, b.y - 1]];
+    const cells = route(cv, pts, live(e) ? "33" : "2", U, 0);
     arrows.push([cells.at(-1), "▼", live(e) ? "33" : "2"]);
     if (live(e)) beads.push([cells, "1;33"]);
   }
   // out of the source's right side; straight into a neighbour on the same row, else down its gutter to a lane
   // below every card and up the target's left gutter
   msgEdges.forEach((e, k) => {
-    const a = pos.get(e.from), b = pos.get(e.to), lane = bottom + k, sx = a.x + a.w, tx = b.x - 1;
+    const a = pos.get(e.from), b = pos.get(e.to), lane = bottom + k * MESSAGE_LANE_H, sx = a.x + a.w, tx = b.x - 1;
     const beside = a.y === b.y && b.slot === a.slot + 1;
     const pts = beside ? [[sx, a.y + 2], [tx, b.y + 2]] : [[sx, a.y + 2], [sx, lane], [tx, lane], [tx, b.y + 2]];
     const cells = route(cv, pts, "35", L, 0);
     arrows.push([cells.at(-1), "▶", "35"], [[a.x + a.w - 1, a.y + 2], "├", "35"]);
     if (beside) { if (e.count > 1) cv.text(sx, a.y + 1, e.count > 9 ? "9+" : `×${e.count}`, "35"); }
-    else cv.text(Math.max(sx, tx) + 2, lane, `${e.count} msg`, "35");
+    else {
+      const label = clipTo(`${e.count} msg`, cols);
+      labels.push([Math.min(Math.max(sx, tx) + GUTTER, cols - label.length), lane + 1, label]);
+    }
     if (now - e.lastAt < ACTIVE_MS) beads.push([cells, "1;35"]);
   });
   for (const [cells, style] of beads) cells.forEach(([x, y], i) => { if ((i - frame) % 4 === 0) cv.put(x, y, "●", style); });
@@ -227,6 +258,7 @@ export function render(graph, { cols = 100, rows = 30, frame = 0, now = Date.now
   for (const n of graph.nodes.values()) card(cv, n, pos.get(n.id), now);
   for (const e of spawns) { const a = pos.get(e.from); cv.put(a.cx, a.y + CARD_H - 1, "┬", "2"); }
   for (const [[x, y], c, style] of arrows) cv.put(x, y, c, style);
+  for (const [x, y, text] of labels) cv.text(x, y, text, "35");
 
   const subs = [...graph.nodes.values()].filter((n) => n.id !== MAIN);
   const running = subs.filter((n) => STATUS[n.status] === "33").length;
