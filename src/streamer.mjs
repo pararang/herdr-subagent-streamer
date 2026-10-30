@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // herdr-subagent-streamer: one multiplexer tab per session's subagents, in one of two stream modes:
-//   tail  (default) one live split per subagent;  graph  one pane drawing the agent flow graph
-//   streamer.mjs auto  <cfg>    watch this session's subagents; open the tab (and splits in tail mode)
+//   hybrid (default) graph pane plus one live split per subagent;  tail  board plus one split per subagent;
+//   graph  one pane drawing the agent flow graph
+//   streamer.mjs auto  <cfg>    watch this session's subagents; open the tab (and splits in hybrid/tail mode)
 //   streamer.mjs board <cfg>    status list (root pane of the tab in tail mode)
-//   streamer.mjs graph <cfg>    flow graph (the only pane of the tab in graph mode)
+//   streamer.mjs graph <cfg>    flow graph (root pane of the tab in hybrid/graph mode)
 //   streamer.mjs follow <spec>  pretty-tail one subagent until it settles
 // <cfg>/<spec> are base64url JSON; the extension builds them, nobody types them.
 // Mux: herdr when HERDR_ENV=1, else tmux when $TMUX is set (override: HERDR_SUBAGENT_STREAMER_MUX).
@@ -92,7 +93,7 @@ async function graph(cfg) {
       const tasks = host.list();
       track(MAIN, foldFeed(cfg.feed).sessionFile);
       for (const t of tasks) track(t.id, resolve(t.spec).transcript);
-      g = buildGraph({ session: cfg.session, tasks, acts, mainAlive: !cfg.pid || alive(cfg.pid) });
+      g = buildGraph({ session: cfg.session, tasks, acts });
     }
     const lines = render(g, { cols: process.stdout.columns || 100, rows: process.stdout.rows || 30, frame, title });
     process.stdout.write("\x1b[H" + lines.map((l) => l + "\x1b[K").join("\n") + "\x1b[J");
@@ -137,12 +138,14 @@ function openPane(from, i, label, cmd) {
 }
 
 const closeTab = (tab) => (mux === "herdr" ? run("herdr", ["tab", "close", tab]) : run("tmux", ["kill-window", "-t", tab]));
-// Throws when the user closed the tab, like openPane does in tail mode.
+// Throws when the user closed the tab, like openPane does in the split modes.
 const checkTab = (tab) => (mux === "herdr" ? hj("tab", "get", tab) : run("tmux", ["display", "-p", "-t", tab, "#{pane_id}"]));
 
 // Per stream mode: what the tab's root pane runs, and what a new subagent adds to the tab.
+const split = (last, n, t) => openPane(last, n, t.name, `${SELF} follow ${enc(t.spec)}`);
 const MODES = {
-  tail: { root: "board", attach: (last, n, t) => openPane(last, n, t.name, `${SELF} follow ${enc(t.spec)}`) },
+  hybrid: { root: "graph", attach: split },
+  tail: { root: "board", attach: split },
   graph: { root: "graph", attach: (last, _n, _t, tab) => (checkTab(tab), last) },
 };
 

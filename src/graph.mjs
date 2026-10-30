@@ -12,7 +12,8 @@ const shortTool = (name) => String(name).split("__").pop();
 // ---------- activity ----------
 export function createActivity(file) {
   let offset = 0, rest = Buffer.alloc(0);
-  const a = { file, sessionId: undefined, tools: 0, open: new Map(), sends: [] };
+  // turn: "working" mid-turn (prompt, tool call, or tool result last), "waiting" once a reply ends the turn
+  const a = { file, sessionId: undefined, tools: 0, open: new Map(), sends: [], turn: "waiting" };
   a.poll = () => {
     let fd; try { fd = fs.openSync(file, "r"); } catch { return a; }
     try {
@@ -37,8 +38,10 @@ function ingest(a, line) {
   if (e.type === "session") { a.sessionId ??= e.id; return; }
   const m = e.message;
   if (e.type !== "message" || !m) return;
-  if (m.role === "toolResult") { a.open.delete(m.toolCallId); return; }
+  if (m.role === "user") { a.turn = "working"; return; }
+  if (m.role === "toolResult") { a.open.delete(m.toolCallId); a.turn = "working"; return; }
   if (m.role !== "assistant" || !Array.isArray(m.content)) return;
+  a.turn = m.content.some((c) => c.type === "toolCall") ? "working" : "waiting";
   for (const c of m.content) {
     if (c.type !== "toolCall") continue;
     a.tools++;
@@ -50,12 +53,12 @@ function ingest(a, line) {
 // ---------- model ----------
 // Node: { id, name, status, parent, started, ended, tools, tool, msgIn }
 // Edge: { from, to, kind: "spawn" | "message", count, lastAt }
-export function buildGraph({ session, tasks, acts, mainAlive = true }) {
+export function buildGraph({ session, tasks, acts }) {
   const stats = (id) => {
     const a = acts.get(id);
     return { tools: a?.tools ?? 0, tool: a ? [...a.open.values()].pop() : undefined };
   };
-  const nodes = new Map([[MAIN, { id: MAIN, name: "main", status: mainAlive ? "running" : "exited", parent: null, msgIn: 0, ...stats(MAIN) }]]);
+  const nodes = new Map([[MAIN, { id: MAIN, name: "main", status: acts.get(MAIN)?.turn ?? "waiting", parent: null, msgIn: 0, ...stats(MAIN) }]]);
   const bySession = new Map([[session, MAIN]]);
   const byRef = new Map();
   for (const t of tasks) {
@@ -126,8 +129,8 @@ export function layout(graph, cols) {
 // ---------- render ----------
 const U = 1, R = 2, D = 4, L = 8;
 const LINE = [" ", "│", "─", "└", "│", "│", "┌", "├", "─", "┘", "─", "┴", "┐", "┤", "┬", "┼"];
-const STATUS = { running: "33", started: "33", completed: "32", failed: "31", aborted: "31", cancelled: "31", killed: "31", lost: "31", exited: "2" };
-const GLYPH = { running: "*", started: "*", completed: "+", exited: "-" };
+const STATUS = { running: "33", started: "33", completed: "32", failed: "31", aborted: "31", cancelled: "31", killed: "31", lost: "31", working: "33", waiting: "36" };
+const GLYPH = { running: "*", started: "*", working: "*", completed: "+", waiting: "~" };
 const ACTIVE_MS = 10000;
 
 function canvas(width, height) {

@@ -15,13 +15,13 @@ tab "1"               tab "1-subagents"
 +-----------------+   +-------------------+-------------------+
 ```
 
-That is the default `tail` stream mode. The `graph` mode puts the whole session in one pane instead: a flow graph with a card per agent, the main agent on top, spawn edges down to each subagent (nested ones under the subagent that spawned them), and `task_send` messages between subagents drawn as magenta `├─▶` edges. Edges animate while their agent is working. Inspired by [zoetrope](https://github.com/furkankly/zoetrope).
+That is the `tail` stream mode. The `graph` mode puts the whole session in one pane instead: a flow graph with a card per agent, the main agent on top, spawn edges down to each subagent (nested ones under the subagent that spawned them), and `task_send` messages between subagents drawn as magenta `├─▶` edges. Edges animate while their agent is working. Inspired by [zoetrope](https://github.com/furkankly/zoetrope).
 
 ```
  subagents graph 01a18b81 1 running · 1 settled
 
  ╭─ main ─────────────────╮
- │ - exited               │
+ │ ~ waiting              │
  │ 2 calls                │
  ╰────────────┬───────────╯
               ●
@@ -33,6 +33,17 @@ That is the default `tail` stream mode. The `graph` mode puts the whole session 
  ╰────────────────────────╯  ╰────────────────────────╯
 
  ● active   ─ spawn   ─ task_send
+```
+
+The default `hybrid` mode combines the two: the graph is the tab's first pane, and every subagent still gets its own live split next to it.
+
+```
+tab "1-subagents" (hybrid)
++-------------------+-------------------+
+| graph             | scout   (live)    |
+|                   +-------------------+
+|                   | fixer   (live)    |
++-------------------+-------------------+
 ```
 
 - Tab name: `<main agent's tab name>-subagents`, read at runtime.
@@ -74,25 +85,25 @@ The extension (`extension/index.js`) runs when a session starts and launches `sr
 | omo native | Polls `$OMO_CODING_AGENT_DIR/projects/*/senpi-task/tasks/*.json` (default `~/.omo/agent`) and tails each child's transcript under `children/<id>/sessions/<id>/`. |
 | omp | The extension forwards the `task:subagent:lifecycle` event (`id`, `status`, `sessionFile`) to a feed file in the temp dir; the transcript is the event's `sessionFile`, or `<session file minus .jsonl>/<id>.jsonl`. |
 
-In `tail` mode, for each new subagent the streamer splits the tab (alternating right and down) and runs a follower that pretty-prints the transcript until the subagent settles. In `graph` mode the tab has one pane (`streamer.mjs graph`) that reads every transcript incrementally: the task record's `parent_session_id` places each subagent under the agent that spawned it (omo; omp subagents all hang off the main agent), tool calls fill the cards, and `task_send` calls become message edges. A follow-up message to an agent's own child is counted on the child's card instead of getting a second edge. It drives the multiplexer with the `herdr` CLI (`tab create`, `pane split`, `pane run`, `tab close`) or `tmux` (`new-window`, `split-window`, `kill-window`).
+In `hybrid` and `tail` mode, for each new subagent the streamer splits the tab (alternating right and down) and runs a follower that pretty-prints the transcript until the subagent settles. The first pane is the graph in `hybrid` mode and the status board in `tail` mode. In `graph` mode the tab has only the graph pane (`streamer.mjs graph`), which reads every transcript incrementally: the task record's `parent_session_id` places each subagent under the agent that spawned it (omo; omp subagents all hang off the main agent), tool calls fill the cards, and `task_send` calls become message edges. A follow-up message to an agent's own child is counted on the child's card instead of getting a second edge. It drives the multiplexer with the `herdr` CLI (`tab create`, `pane split`, `pane run`, `tab close`) or `tmux` (`new-window`, `split-window`, `kill-window`).
 
 ## Configuration
 
 `~/.config/herdr-subagent-streamer/config.json` (or under `$XDG_CONFIG_HOME`):
 
 ```json
-{ "streamMode": "graph" }
+{ "streamMode": "tail" }
 ```
 
 | Key | Values | Default | Meaning |
 |---|---|---|---|
-| `streamMode` | `tail`, `graph` | `tail` | `tail`: one live split per subagent. `graph`: one pane with the agent flow graph. An unknown value logs a warning and falls back to `tail`. |
+| `streamMode` | `hybrid`, `tail`, `graph` | `hybrid` | `hybrid`: the graph pane plus one live split per subagent. `tail`: the status board plus one live split per subagent. `graph`: only the graph pane. An unknown value logs a warning and falls back to `hybrid`. |
 
 The config is read when the streamer starts, so a change applies to the next agent session.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `HERDR_SUBAGENT_STREAMER_STREAM_MODE` | config file | Overrides `streamMode`. |
+| `HERDR_SUBAGENT_STREAMER_STREAM_MODE` | config file, else `hybrid` | Overrides `streamMode`. An unknown value falls back to `hybrid`. |
 | `HERDR_SUBAGENT_STREAMER_CLOSE_MS` | `5000` | Close the tab this long after all subagents settle. `0` keeps it open. |
 | `HERDR_SUBAGENT_STREAMER_HOST` | `omo` when `OMO_NATIVE=1`, else `omp` | Force the host adapter. |
 | `HERDR_SUBAGENT_STREAMER_MUX` | `herdr` when `HERDR_ENV=1`, else `tmux` when `$TMUX` is set | Force the multiplexer. |
