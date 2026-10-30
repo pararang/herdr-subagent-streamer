@@ -78,6 +78,20 @@ test("graph: an unknown parent session or a parent loop hangs the subagent off m
   assert.equal(render(g, { cols: 80, rows: 20 }).length, 20);
 });
 
+test("graph: wraps agents into visible rows when the pane narrows", () => {
+  const tasks = Array.from({ length: 6 }, (_, i) => ({
+    id: `agent${i + 1}`, name: `agent${i + 1}`, status: "running", parent: "S0",
+  }));
+  const graph = buildGraph({ session: "S0", tasks, acts: new Map() });
+  for (const cols of [70, 46, 120, 70]) {
+    const frame = render(graph, { cols, rows: 60, now: 0 }).map(plain);
+    const text = frame.join("\n");
+    for (const task of tasks) assert.ok(text.includes(task.name), `${cols} columns shows ${task.name}`);
+    assert.equal((text.match(/╮/g) ?? []).length, 7, `${cols} columns shows every card's right border`);
+    assert.ok(frame.every((row) => [...row].length <= cols), "frame fits the pane width");
+  }
+});
+
 test("config: streamMode defaults to hybrid, reads the file, env wins, unknown values fall back to hybrid", () => {
   const file = path.join(tmp(), "config.json");
   assert.deepEqual(loadConfig(file, {}), { streamMode: "hybrid" });
