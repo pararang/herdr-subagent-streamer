@@ -1,5 +1,7 @@
 # herdr-subagent-streamer
 
+![Live subagent graph in Herdr](graph.gif)
+
 Watch your coding agent's subagents work live. Install once, start the agent inside herdr (or tmux), and every subagent gets its own split in one extra tab, streaming its prompt, thinking, tool calls and result as they happen.
 
 Works with **omo native** and **omp** (oh-my-pi). Nothing to start by hand.
