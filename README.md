@@ -52,6 +52,24 @@ tab "1-subagents" (hybrid)
 
 ## Install
 
+### Herdr marketplace
+
+The [Herdr marketplace](https://herdr.dev/plugins/) discovers this repository through its `herdr-plugin` GitHub topic and root `herdr-plugin.toml`.
+
+```bash
+herdr plugin install pararang/herdr-subagent-streamer
+```
+
+This registers the package with Herdr. It does not install the agent extension. Complete the omo native or OMP installation below to enable streaming. The Herdr manifest declares metadata only, with no build commands, startup hooks, actions, or panes. The agent extension starts the streamer for each session.
+
+To update the Herdr registration:
+
+```bash
+herdr plugin update pararang.subagent-streamer
+```
+
+### Agent extension
+
 omo native:
 
 ```bash
