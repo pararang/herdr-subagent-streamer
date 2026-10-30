@@ -117,13 +117,14 @@ The streamer's log is `<tmpdir>/herdr-subagent-streamer/<pane>.log`.
 - omo only: a detached subagent whose parent already exited keeps `status: running` in omo's record. The streamer treats a transcript that ends in a plain assistant reply and has been quiet for 3 seconds as finished.
 - Subagents that already finished when the session starts get no split.
 - The splits are transcript tails, not herdr agents: no working/idle badge and no typing into them.
-- Large fan-outs make small panes. In graph mode cards shrink to 14 columns, then the graph is cut off at the pane's right and bottom edges (no scrolling yet).
+- Large fan-outs make small transcript panes. The graph adapts to its own pane width and wraps whole subtrees onto additional rows. Resizing the pane reflows the cards. Extremely narrow panes shorten card text. Graphs taller than the pane are still cut off at the bottom, with no scrolling yet.
 - It reads each host's on-disk layout and event payloads, which are not stable public APIs. If a host update breaks it, check `src/hosts.mjs` first.
 
 ## Tested
 
 - omo native 5.1.33: installed with `omo install -l --approve`; a real session spawned two subagents, the tab opened with a board plus two live splits, and it closed itself after they finished.
-- omp 18.10.4: installed with `omp plugin install`; the extension loads, `session_start` fires, a `task:subagent:lifecycle` event emitted on omp's event bus reaches the feed, and the tab opens and closes. Not tested: omp spawning real subagents (needs a configured model), and tmux on either host.
+- omp 18.10.4: installed with `omp plugin install`; the extension loads, `session_start` fires, a `task:subagent:lifecycle` event emitted on omp's event bus reaches the feed, and the tab opens and closes. tmux remains untested on either host.
+- Live OMP session in herdr: four concurrent subagents streamed into separate panes, completed, and triggered automatic tab closure. The graph renderer showed all six fixture agents at 73 and 43 columns in a real herdr pane and reflowed after resizing. The streaming tab took focus when it opened, contrary to the intended no-focus behavior.
 
 ## Develop
 
