@@ -1,7 +1,9 @@
 #!/usr/bin/env node
-// herdr-subagent-streamer: one multiplexer tab, one live split per subagent.
-//   streamer.mjs auto  <cfg>    watch this session's subagents; open the tab and splits
-//   streamer.mjs board <cfg>    status list (root pane of the tab)
+// herdr-subagent-streamer: one multiplexer tab per session's subagents, in one of two stream modes:
+//   tail  (default) one live split per subagent;  graph  one pane drawing the agent flow graph
+//   streamer.mjs auto  <cfg>    watch this session's subagents; open the tab (and splits in tail mode)
+//   streamer.mjs board <cfg>    status list (root pane of the tab in tail mode)
+//   streamer.mjs graph <cfg>    flow graph (the only pane of the tab in graph mode)
 //   streamer.mjs follow <spec>  pretty-tail one subagent until it settles
 // <cfg>/<spec> are base64url JSON; the extension builds them, nobody types them.
 // Mux: herdr when HERDR_ENV=1, else tmux when $TMUX is set (override: HERDR_SUBAGENT_STREAMER_MUX).
@@ -9,7 +11,9 @@
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { TERMINAL, hostFor, resolve } from "./hosts.mjs";
+import { TERMINAL, foldFeed, hostFor, resolve } from "./hosts.mjs";
+import { loadConfig } from "./config.mjs";
+import { MAIN, buildGraph, createActivity, render } from "./graph.mjs";
 
 const SELF = `${q(process.execPath)} ${q(fileURLToPath(import.meta.url))}`;
 const CLOSE_AFTER_MS = Number(process.env.HERDR_SUBAGENT_STREAMER_CLOSE_MS ?? 5000); // 0 keeps the tab open
@@ -69,6 +73,33 @@ async function board(cfg) {
   }
 }
 
+// ---------- graph ----------
+async function graph(cfg) {
+  const host = hostFor(cfg), acts = new Map();
+  const track = (id, file) => {
+    if (!file) return;
+    let a = acts.get(id);
+    if (a?.file !== file) acts.set(id, (a = createActivity(file)));
+    a.poll();
+  };
+  process.stdout.write("\x1b[?25l");
+  process.on("exit", () => process.stdout.write("\x1b[?25h"));
+  process.on("SIGTERM", () => process.exit(0));
+  const title = String(cfg.session ?? "").slice(0, 8);
+  let g;
+  for (let frame = 0; ; frame++) {
+    if (frame % 4 === 0) {
+      const tasks = host.list();
+      track(MAIN, foldFeed(cfg.feed).sessionFile);
+      for (const t of tasks) track(t.id, resolve(t.spec).transcript);
+      g = buildGraph({ session: cfg.session, tasks, acts, mainAlive: !cfg.pid || alive(cfg.pid) });
+    }
+    const lines = render(g, { cols: process.stdout.columns || 100, rows: process.stdout.rows || 30, frame, title });
+    process.stdout.write("\x1b[H" + lines.map((l) => l + "\x1b[K").join("\n") + "\x1b[J");
+    await sleep(250);
+  }
+}
+
 // ---------- multiplexer ----------
 const run = (cmd, args) => {
   const r = spawnSync(cmd, args, { encoding: "utf8" });
@@ -106,6 +137,14 @@ function openPane(from, i, label, cmd) {
 }
 
 const closeTab = (tab) => (mux === "herdr" ? run("herdr", ["tab", "close", tab]) : run("tmux", ["kill-window", "-t", tab]));
+// Throws when the user closed the tab, like openPane does in tail mode.
+const checkTab = (tab) => (mux === "herdr" ? hj("tab", "get", tab) : run("tmux", ["display", "-p", "-t", tab, "#{pane_id}"]));
+
+// Per stream mode: what the tab's root pane runs, and what a new subagent adds to the tab.
+const MODES = {
+  tail: { root: "board", attach: (last, n, t) => openPane(last, n, t.name, `${SELF} follow ${enc(t.spec)}`) },
+  graph: { root: "graph", attach: (last, _n, _t, tab) => (checkTab(tab), last) },
+};
 
 // ---------- auto ----------
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
@@ -113,10 +152,12 @@ const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { retu
 async function auto(cfg) {
   if (!mux) throw new Error("needs herdr (HERDR_ENV=1) or tmux ($TMUX)");
   const host = hostFor(cfg);
+  const { streamMode } = loadConfig();
+  const mode = MODES[streamMode];
   const seen = new Set(), inTab = new Set();
   let tab = "", last = "", n = 0, allDoneAt = 0;
   process.on("SIGTERM", () => { try { if (tab) closeTab(tab); } finally { process.exit(0); } });
-  console.log(`streamer (${mux}, ${cfg.host}, session ${String(cfg.session).slice(0, 8)}): waiting for subagents`);
+  console.log(`streamer (${mux}, ${cfg.host}, ${streamMode}, session ${String(cfg.session).slice(0, 8)}): waiting for subagents`);
   for (let first = true; ; first = false) {
     const tasks = host.list();
     const hostGone = cfg.pid && !alive(cfg.pid);
@@ -127,10 +168,10 @@ async function auto(cfg) {
       seen.add(t.id);
       if (first && TERMINAL.includes(t.status)) continue; // finished before we started
       try {
-        if (!tab) ({ tab, pane: last } = openTab(`${mainTabLabel()}-subagents`, `${SELF} board ${enc(cfg)}`));
-        last = openPane(last, ++n, t.name, `${SELF} follow ${enc(t.spec)}`);
+        if (!tab) ({ tab, pane: last } = openTab(`${mainTabLabel()}-subagents`, `${SELF} ${mode.root} ${enc(cfg)}`));
+        last = mode.attach(last, ++n, t, tab);
         inTab.add(t.id); allDoneAt = 0;
-        console.log(`split for ${t.id}`);
+        console.log(`${streamMode}: added ${t.id}`);
       } catch (e) { // tab was closed by the user: recreate on the next subagent
         console.error(`failed for ${t.id}: ${e.message}`);
         tab = last = ""; n = 0; inTab.clear(); seen.delete(t.id);
@@ -154,5 +195,6 @@ async function auto(cfg) {
 const [cmd, arg] = process.argv.slice(2);
 if (cmd === "follow") await follow(dec(arg));
 else if (cmd === "board") await board(dec(arg));
+else if (cmd === "graph") await graph(dec(arg));
 else if (cmd === "auto") await auto(dec(arg));
-else { console.error("usage: streamer.mjs auto|board|follow <base64url-json>"); process.exit(2); }
+else { console.error("usage: streamer.mjs auto|board|graph|follow <base64url-json>"); process.exit(2); }
