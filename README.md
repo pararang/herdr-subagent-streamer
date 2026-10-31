@@ -164,6 +164,47 @@ npm test        # node --test
 
 `test/streamer.test.mjs` drives the actual `auto` CLI with isolated lifecycle feeds and recording Herdr and tmux executables. The executables launch real follower commands and capture pane titles, rendered output, command exits, and tab lifecycle events. These tests do not connect to a real Herdr server or tmux session.
 
+## Release
+
+Releases use Git tags named `v<version>`, such as `v0.1.0` or
+`v0.2.0-rc.1`. The version must match both `package.json` and
+`herdr-plugin.toml`. Prerelease identifiers follow SemVer; build metadata
+(`+...`) is not supported in release tags.
+
+From the branch you intend to release:
+
+1. Update `version` in both files to the same value.
+2. Run the checks locally:
+
+   ```bash
+   npm run release:check -- v0.1.0
+   npm test
+   npm pack --dry-run
+   ```
+
+3. Commit the version changes and push that commit.
+4. Tag that commit and push the tag:
+
+   ```bash
+   git tag -a v0.1.0 -m "Release v0.1.0"
+   git push origin v0.1.0
+   ```
+
+Replace `0.1.0` with the version being released. Pushing the tag starts
+`.github/workflows/release.yml`, which validates both versions, runs the
+tests, and packages the tagged checkout with `npm pack`. Only after those
+steps succeed does it create a GitHub Release with generated release notes
+and a `herdr-subagent-streamer-<version>.tgz` attachment. Tags with a
+prerelease suffix create GitHub prereleases and do not become the latest
+release. The workflow uses the repository's `GITHUB_TOKEN` with
+`contents: write`; no additional publishing secret is needed.
+
+The workflow does not publish to npm. Existing Git and checkout installs
+remain available. To install a release archive, download its `.tgz` from
+[GitHub Releases](https://github.com/pararang/herdr-subagent-streamer/releases),
+extract it, then run `omo install ./package` or
+`omp plugin install ./package` from the extraction directory.
+
 ## License
 
 MIT

@@ -19,6 +19,7 @@ npm-debug.log*
 
 # Packaging output
 *.tgz
+dist/
 
 # Coverage
 coverage/
