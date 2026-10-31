@@ -2,11 +2,11 @@
 
 ![Live subagent graph in Herdr](graph.gif)
 
-Watch your coding agent's subagents work live. Install once, start the agent inside herdr (or tmux), and every subagent gets its own split in one extra tab, streaming its prompt, thinking, tool calls and result as they happen.
+Watch your coding agent's subagents work live. Install once and start the agent inside herdr or tmux. Active subagents stream their prompts, thinking, tool calls, and results into reusable transcript panes in one extra tab.
 
 Works with **omo native** and **omp** (oh-my-pi). Nothing to start by hand.
 
-> **Warning:** only tested with herdr. tmux support is implemented but has not been tested yet, so expect rough edges there.
+Herdr and tmux have been smoke-tested in isolated real sessions with fixture lifecycle feeds. Host integration coverage is listed under [Tested](#tested).
 
 ```
 tab "1"               tab "1-subagents"
@@ -37,7 +37,7 @@ That is the `tail` stream mode. The `graph` mode puts the whole session in one p
  ● active   ─ spawn   ─ task_send
 ```
 
-The default `hybrid` mode combines the two: the graph is the tab's first pane, and every subagent still gets its own live split next to it.
+The default `hybrid` mode combines the two. The graph is the tab's first pane, with live transcript panes next to it. The graph keeps known subagents in view after they finish, while transcript panes follow active workers.
 
 ```
 tab "1-subagents" (hybrid)
@@ -49,6 +49,9 @@ tab "1-subagents" (hybrid)
 ```
 
 - Tab name: `<main agent's tab name>-subagents`, read at runtime.
+- Transcript panes belong only to workers observed as `started` or `running`. Queued, pending, unknown, and terminal-only workers do not get transcript panes.
+- A finished worker's pane can retain its final output until another worker needs it. The next active worker reuses that physical pane with a new title and cleared output. The graph or status board stays separate.
+- The transcript pane count grows only to the peak number of active workers observed in that tab. Three active workers and two queued workers use three transcript panes, not five. The streamer does not change the host's concurrency setting.
 - Closes itself 5 seconds after every subagent in it has finished. If the agent exits first, the tab stays until its subagents finish (omo) or closes right away (omp, whose subagents die with it).
 - Outside herdr/tmux the plugin does nothing, so it is safe to install everywhere.
 
@@ -94,7 +97,9 @@ Requirements: herdr (`herdr` on PATH) or tmux, plus `bun` or `node` >= 18 on PAT
 
 ## Use
 
-Start the agent in a herdr pane and spawn subagents as usual. The first subagent opens the `-subagents` tab without taking focus.
+Start the agent in a herdr pane and spawn subagents as usual. Known subagents open the `-subagents` overview tab without requesting focus. In `hybrid` or `tail` mode, active workers receive reusable transcript panes. In `graph` mode, the tab has only the graph.
+
+For installations symlinked to this checkout, restart each running agent session after an update. Each linked profile uses the same source files, but an existing detached streamer keeps its loaded code until it restarts.
 
 ## How it works
 
@@ -105,7 +110,11 @@ The extension (`extension/index.js`) runs when a session starts and launches `sr
 | omo native | Polls `$OMO_CODING_AGENT_DIR/projects/*/senpi-task/tasks/*.json` (default `~/.omo/agent`) and tails each child's transcript under `children/<id>/sessions/<id>/`. |
 | omp | The extension forwards the `task:subagent:lifecycle` event (`id`, `status`, `sessionFile`) to a feed file in the temp dir; the transcript is the event's `sessionFile`, or `<session file minus .jsonl>/<id>.jsonl`. |
 
-In `hybrid` and `tail` mode, for each new subagent the streamer splits the tab (alternating right and down) and runs a follower that pretty-prints the transcript until the subagent settles. The first pane is the graph in `hybrid` mode and the status board in `tail` mode. In `graph` mode the tab has only the graph pane (`streamer.mjs graph`), which reads every transcript incrementally: the task record's `parent_session_id` places each subagent under the agent that spawned it (omo; omp subagents all hang off the main agent), tool calls fill the cards, and `task_send` calls become message edges. A follow-up message to an agent's own child is counted on the child's card instead of getting a second edge. It drives the multiplexer with the `herdr` CLI (`tab create`, `pane split`, `pane run`, `tab close`) or `tmux` (`new-window`, `split-window`, `kill-window`).
+In `hybrid` and `tail` mode, the streamer assigns active workers to transcript slots. Each slot owns a physical pane and runs a follower until its worker settles. Before reusing the pane, the streamer waits for the follower to drain the available complete transcript records, flush its output, and exit. The next assignment clears the old viewport and scrollback before showing the new worker's title and transcript. A worker that becomes active again can receive a slot again, including after the tab closes. Its transcript can replay on revival.
+
+The first pane is the graph in `hybrid` mode and the status board in `tail` mode. Both retain the host's full list of known subagents independently of transcript slot ownership. In `graph` mode, the tab has only the graph pane (`streamer.mjs graph`). The graph reads every available transcript incrementally. The task record's `parent_session_id` places each subagent under the agent that spawned it in omo. OMP subagents all hang off the main agent. Tool calls fill the cards, and `task_send` calls become message edges. A follow-up message to an agent's own child is counted on the child's card instead of getting a second edge.
+
+The streamer drives Herdr with `tab create`, `pane split`, `pane run`, and `tab close`. For tmux, it creates idle transcript panes with pane-local `remain-on-exit`, then uses `respawn-pane` to start each follower after the previous assignment exits.
 
 ## Configuration
 
@@ -117,7 +126,7 @@ In `hybrid` and `tail` mode, for each new subagent the streamer splits the tab (
 
 | Key | Values | Default | Meaning |
 |---|---|---|---|
-| `streamMode` | `hybrid`, `tail`, `graph` | `hybrid` | `hybrid`: the graph pane plus one live split per subagent. `tail`: the status board plus one live split per subagent. `graph`: only the graph pane. An unknown value logs a warning and falls back to `hybrid`. |
+| `streamMode` | `hybrid`, `tail`, `graph` | `hybrid` | `hybrid` has a graph plus reusable active-worker transcript panes. `tail` has a status board plus the same transcript panes. `graph` has only the graph pane. An unknown value logs a warning and falls back to `hybrid`. |
 
 The config is read when the streamer starts, so a change applies to the next agent session.
 
@@ -132,25 +141,28 @@ The streamer's log is `<tmpdir>/herdr-subagent-streamer/<pane>.log`.
 
 ## Limits
 
-- omo is polled about once a second. A subagent that finishes faster still gets a split, after it is done, with the full transcript replayed.
-- omp: only detached (background) spawns emit a `started` event; a blocking spawn appears once it has finished.
+- Hosts are polled about once a second. A short task that finishes between polls and is never observed as active gets no transcript pane. It can still appear in the graph or status board if the host reports it.
+- OMP emits `started` events only for detached background spawns. A blocking spawn first appears after it has finished, so it gets no transcript pane.
 - omo only: a detached subagent whose parent already exited keeps `status: running` in omo's record. The streamer treats a transcript that ends in a plain assistant reply and has been quiet for 3 seconds as finished.
-- Subagents that already finished when the session starts get no split.
+- Tasks that are already terminal when discovered get no transcript pane. Queued tasks remain in the graph or status board only if the host exposes them. The streamer does not discover queued OMP tasks beyond the lifecycle feed.
 - The splits are transcript tails, not herdr agents: no working/idle badge and no typing into them.
-- Large fan-outs make small transcript panes. The graph adapts to its own pane width and wraps whole subtrees onto additional rows. Resizing the pane reflows the cards. Extremely narrow panes shorten card text. Graphs taller than the pane are still cut off at the bottom, with no scrolling yet.
+- A large number of simultaneously active workers makes small transcript panes. Completed workers do not add panes. The graph adapts to its own pane width and wraps whole subtrees onto additional rows. Resizing the pane reflows the cards. Extremely narrow panes shorten card text. Graphs taller than the pane are still cut off at the bottom, with no scrolling yet.
 - It reads each host's on-disk layout and event payloads, which are not stable public APIs. If a host update breaks it, check `src/hosts.mjs` first.
 
 ## Tested
 
 - omo native 5.1.33: installed with `omo install -l --approve`; a real session spawned two subagents, the tab opened with a board plus two live splits, and it closed itself after they finished.
-- omp 18.10.4: installed with `omp plugin install`; the extension loads, `session_start` fires, a `task:subagent:lifecycle` event emitted on omp's event bus reaches the feed, and the tab opens and closes. tmux remains untested on either host.
+- omp 18.10.4: installed with `omp plugin install`; the extension loads, `session_start` fires, a `task:subagent:lifecycle` event emitted on omp's event bus reaches the feed, and the tab opens and closes.
 - Live OMP session in herdr: four concurrent subagents streamed into separate panes, completed, and triggered automatic tab closure. The graph renderer showed all six fixture agents at 73 and 43 columns in a real herdr pane and reflowed after resizing. The streaming tab took focus when it opened, contrary to the intended no-focus behavior.
+- Herdr 0.9.5 and tmux 3.8: isolated real sessions with OMP-shaped lifecycle feeds verified three active transcript panes, queued-worker exclusion, same-pane A-to-D and B-to-E handoffs, and cleared replacement output. Herdr also verified revival, graph-only history, and automatic closure. tmux verified operation with a retained Herdr environment, `default-command=true`, and reopening after a manual window close.
 
 ## Develop
 
 ```bash
-npm test        # node --test; also passes under bun test
+npm test        # node --test
 ```
+
+`test/streamer.test.mjs` drives the actual `auto` CLI with isolated lifecycle feeds and recording Herdr and tmux executables. The executables launch real follower commands and capture pane titles, rendered output, command exits, and tab lifecycle events. These tests do not connect to a real Herdr server or tmux session.
 
 ## License
 
