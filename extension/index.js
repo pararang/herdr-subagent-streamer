@@ -1,4 +1,4 @@
-// Extension entry for omo native and omp (both load `pi.extensions` from package.json).
+// OMP plugin extension (`omp.extensions`); omo native loads the same entry via `pi.extensions`.
 // On session start it launches the streamer for this session. The streamer ends itself once the agent has
 // exited and its subagents have settled, because omo subagents can outlive their parent process.
 // Inert outside herdr/tmux, so installing it everywhere is safe.

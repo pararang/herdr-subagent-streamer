@@ -2,9 +2,9 @@
 
 ![Live subagent graph in Herdr](graph.gif)
 
-Watch your coding agent's subagents work live. Install once and start the agent inside herdr or tmux. Active subagents stream their prompts, thinking, tool calls, and results into reusable transcript panes in one extra tab.
+An **OMP plugin** for watching subagents work live in **Herdr or tmux**. Prompts, thinking, tool calls, and results stream into reusable transcript panes alongside a live agent graph.
 
-Works with **omo native** and **omp** (oh-my-pi). Nothing to start by hand.
+Built for an OMP + Herdr workflow, with tmux as an alternative display backend and **omo native** support through the same extension. Install the plugin once; it starts the streamer automatically for each session.
 
 Herdr and tmux have been smoke-tested in isolated real sessions with fixture lifecycle feeds. Host integration coverage is listed under [Tested](#tested).
 
@@ -57,47 +57,56 @@ tab "1-subagents" (hybrid)
 
 ## Install
 
-### Herdr marketplace
+Requirements: Herdr (`herdr` on PATH) or tmux, plus `bun` or `node` >= 18 on PATH. No npm dependencies.
 
-The [Herdr marketplace](https://herdr.dev/plugins/) discovers this repository through its `herdr-plugin` GitHub topic and root `herdr-plugin.toml`.
+### OMP (recommended)
 
-```bash
-herdr plugin install pararang/herdr-subagent-streamer
-```
-
-This registers the package with Herdr. It does not install the agent extension. Complete the omo native or OMP installation below to enable streaming. The Herdr manifest declares metadata only, with no build commands, startup hooks, actions, or panes. The agent extension starts the streamer for each session.
-
-To update the Herdr registration:
+Install directly from GitHub—no Herdr plugin registration or marketplace catalog is required:
 
 ```bash
-herdr plugin update pararang.subagent-streamer
+omp plugin install 'github:pararang/herdr-subagent-streamer'
 ```
 
-### Agent extension
+Restart OMP after installing, then start a session inside Herdr or tmux and spawn subagents as usual. This plugin loads an extension module, so `/reload-plugins` alone is not enough.
 
-omo native:
+To pin a release, append its published tag to the source, for example `'github:pararang/herdr-subagent-streamer#v0.1.0'` once that tag exists. To upgrade a Git installation, run `omp plugin install` again with the source and tag you want, then restart OMP.
+
+For local development:
+
+```bash
+git clone https://github.com/pararang/herdr-subagent-streamer
+omp plugin install ./herdr-subagent-streamer
+# Or load the extension for one run:
+omp -e ./herdr-subagent-streamer/extension/index.js
+```
+
+The local install links the checkout. See [OMP's plugin documentation](https://omp.sh/docs/plugins) for plugin management.
+
+### omo native
 
 ```bash
 omo install git:github.com/pararang/herdr-subagent-streamer
-# or from a checkout (git clone https://github.com/pararang/herdr-subagent-streamer):
+# Or from a checkout:
 omo install ./herdr-subagent-streamer
 ```
 
 `omo install -l` (project-local) works too, but omo only loads project-local packages after you approve them: start with `omo --approve`.
 
-omp:
+### Optional Herdr marketplace registration
+
+The [Herdr marketplace](https://herdr.dev/plugins/) discovers this repository through its `herdr-plugin` GitHub topic and root `herdr-plugin.toml`.
 
 ```bash
-omp plugin install ./herdr-subagent-streamer   # from a checkout of the repo above
-# or load the extension for one run:
-omp -e ./herdr-subagent-streamer/extension/index.js
+herdr plugin install pararang/herdr-subagent-streamer
+# Update an existing registration:
+herdr plugin update pararang.subagent-streamer
 ```
 
-Requirements: herdr (`herdr` on PATH) or tmux, plus `bun` or `node` >= 18 on PATH. No npm dependencies.
+This is optional discovery metadata, not the streaming installation. It does not load the agent extension or start the streamer. Install the OMP plugin or omo extension above to enable streaming. The Herdr manifest has no build commands, startup hooks, actions, or panes; tmux users do not need it.
 
 ## Use
 
-Start the agent in a herdr pane and spawn subagents as usual. Known subagents open the `-subagents` overview tab without requesting focus. In `hybrid` or `tail` mode, active workers receive reusable transcript panes. In `graph` mode, the tab has only the graph.
+Start OMP in a Herdr or tmux pane and spawn subagents as usual. Known subagents open the `-subagents` overview tab without requesting focus. In `hybrid` or `tail` mode, active workers receive reusable transcript panes. In `graph` mode, the tab has only the graph. The same behavior is available when running omo native.
 
 For installations symlinked to this checkout, restart each running agent session after an update. Each linked profile uses the same source files, but an existing detached streamer keeps its loaded code until it restarts.
 
@@ -153,6 +162,7 @@ The streamer's log is `<tmpdir>/herdr-subagent-streamer/<pane>.log`.
 
 - omo native 5.1.33: installed with `omo install -l --approve`; a real session spawned two subagents, the tab opened with a board plus two live splits, and it closed itself after they finished.
 - omp 18.10.4: installed with `omp plugin install`; the extension loads, `session_start` fires, a `task:subagent:lifecycle` event emitted on omp's event bus reaches the feed, and the tab opens and closes.
+- OMP 18.14.1: isolated local installs from the checkout and an extracted `npm pack` archive both appear as enabled plugins with the extension entry point in `omp plugin list --json`. GitHub install syntax was checked with `--dry-run`; this check did not fetch the remote repository or start an agent session.
 - Live OMP session in herdr: four concurrent subagents streamed into separate panes, completed, and triggered automatic tab closure. The graph renderer showed all six fixture agents at 73 and 43 columns in a real herdr pane and reflowed after resizing. The streaming tab took focus when it opened, contrary to the intended no-focus behavior.
 - Herdr 0.9.5 and tmux 3.8: isolated real sessions with OMP-shaped lifecycle feeds verified three active transcript panes, queued-worker exclusion, same-pane A-to-D and B-to-E handoffs, and cleared replacement output. Herdr also verified revival, graph-only history, and automatic closure. tmux verified operation with a retained Herdr environment, `default-command=true`, and reopening after a manual window close.
 
@@ -202,8 +212,8 @@ release. The workflow uses the repository's `GITHUB_TOKEN` with
 The workflow does not publish to npm. Existing Git and checkout installs
 remain available. To install a release archive, download its `.tgz` from
 [GitHub Releases](https://github.com/pararang/herdr-subagent-streamer/releases),
-extract it, then run `omo install ./package` or
-`omp plugin install ./package` from the extraction directory.
+extract it, then run `omp plugin install ./package` (or
+`omo install ./package` for omo native) from the extraction directory.
 
 ## License
 

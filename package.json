@@ -1,7 +1,7 @@
 {
   "name": "herdr-subagent-streamer",
   "version": "0.1.0",
-  "description": "Stream every subagent of omo native or omp live into one herdr tab (or tmux window), one split per subagent.",
+  "description": "OMP plugin for live subagent graphs and reusable transcript panes in Herdr or tmux; also supports omo native.",
   "type": "module",
   "license": "MIT",
   "keywords": ["pi-package", "omp", "omo", "herdr", "tmux", "subagents"],
