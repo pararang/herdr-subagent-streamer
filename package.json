@@ -7,7 +7,7 @@
   "keywords": ["pi-package", "omp", "omo", "herdr", "tmux", "subagents"],
   "pi": { "extensions": ["./extension/index.js"] },
   "omp": { "extensions": ["./extension/index.js"] },
-  "files": ["extension/", "src/", "herdr-plugin.toml", "README.md", "LICENSE"],
+  "files": ["extension/", "src/", "bin/", "opencode-plugin/", "herdr-plugin.toml", "README.md", "LICENSE"],
   "scripts": {
     "test": "node --test",
     "release:check": "node scripts/check-release.mjs"

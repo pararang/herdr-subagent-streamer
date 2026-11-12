@@ -4,7 +4,7 @@
 //
 // Tables are opencode's v2 set (session_v2 / session_message); a v2 message carries its content
 // inline, and a message of type "idle" is the session saying it finished, with an outcome.
-// Plain node builtins only; node:sqlite needs node >= 22.5, so the sqlite3 CLI is the fallback.
+// Plain node builtins only; node:sqlite is unflagged from node 22.13, so the sqlite3 CLI is the fallback.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -26,7 +26,6 @@ const workDir = () => {
 };
 
 // ---------- reading: node:sqlite when the runtime has it, else the sqlite3 CLI ----------
-// node:sqlite landed in node 22.5; older nodes and any runtime without it fall back to the CLI.
 let db = null;
 try {
   const { DatabaseSync } = await import("node:sqlite");

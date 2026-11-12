@@ -1,10 +1,6 @@
 #!/bin/bash
 # Start the subagent streamer for an opencode pane.
 #
-# This opencode build imports files in ~/.config/opencode/plugins but never calls their exported
-# factory, so the plugin cannot hook session events (verified with a minimal reference plugin).
-# Herdr already knows which session each pane runs, so take it from there instead.
-#
 #   streamer-here.sh [PANE_ID]           start now
 #   streamer-here.sh --watch [PANE_ID]   wait for this pane to spawn a subagent, then start
 #

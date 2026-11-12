@@ -1,6 +1,6 @@
 // Host adapters: turn "where does this coding agent keep its subagents" into one shape.
 //   list()            -> [{ id, name, status, category, created, started, ended, spec, parent?, description? }]
-//                        parent: the spawning session's id (omo only; omp subagents all hang off the main agent)
+//                        parent: the spawning session's id (omo and opencode; omp subagents all hang off the main agent)
 //   resolve(spec)     -> { status, transcript }   (used by the per-split follower)
 // Plain node builtins only, so this runs under node >= 18 and bun.
 import fs from "node:fs";
