@@ -15,12 +15,14 @@ const ls = (d) => { try { return fs.readdirSync(d); } catch { return []; } };
 const agentDir = () => process.env.OMO_CODING_AGENT_DIR ?? path.join(os.homedir(), ".omo", "agent");
 
 // ---------- omo native: senpi-task keeps a JSON record + live transcript per child ----------
-const cache = new Map(); // path -> { mtimeMs, rec }: skip re-parsing unchanged records
+// Keyed on mtime and size: a rewrite inside one mtime tick keeps the mtime but not the size.
+const stamp = (st) => `${st.mtimeMs}:${st.size}`;
+const cache = new Map(); // path -> { stamp, rec }: skip re-parsing unchanged records
 function cachedJson(p) {
-  const m = fs.statSync(p).mtimeMs, c = cache.get(p);
-  if (c?.mtimeMs === m) return c.rec;
+  const s = stamp(fs.statSync(p)), c = cache.get(p);
+  if (c?.stamp === s) return c.rec;
   const rec = readJson(p);
-  cache.set(p, { mtimeMs: m, rec });
+  cache.set(p, { stamp: s, rec });
   return rec;
 }
 
@@ -34,16 +36,17 @@ const transcriptOf = (taskFile) => {
 // A detached omo child whose parent already exited never gets its record updated and stays "running".
 // Its transcript still tells the truth: a plain assistant reply (no tool call), quiet for 3s, means it finished.
 // Returns the finish time in ms, or null.
-const endCache = new Map(); // transcript -> { mtimeMs, done }
+const endCache = new Map(); // transcript -> { stamp, done }
 function finishedAt(file) {
-  let mtimeMs; try { mtimeMs = fs.statSync(file).mtimeMs; } catch { return null; }
+  let st; try { st = fs.statSync(file); } catch { return null; }
+  const { mtimeMs } = st;
   if (Date.now() - mtimeMs < 3000) return null;
   let c = endCache.get(file);
-  if (c?.mtimeMs !== mtimeMs) {
+  if (c?.stamp !== stamp(st)) {
     const lines = fs.readFileSync(file, "utf8").split("\n").filter(Boolean);
     let last; for (let i = lines.length - 1; i >= 0 && !last; i--) { try { const e = JSON.parse(lines[i]); if (e.type === "message") last = e.message; } catch {} }
     const plainReply = last?.role === "assistant" && Array.isArray(last.content) && !last.content.some((x) => x.type === "toolCall");
-    c = { mtimeMs, done: !!plainReply };
+    c = { stamp: stamp(st), done: !!plainReply };
     endCache.set(file, c);
   }
   return c.done ? mtimeMs : null;
