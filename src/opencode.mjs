@@ -15,10 +15,27 @@ export const dbPath = () =>
   path.join(process.env.XDG_DATA_HOME ?? path.join(os.homedir(), ".local", "share"), "opencode", "opencode.db");
 
 // Every process rebuilds its transcripts from the start, so a shared file would get one copy per process.
+const alive = (pid) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === "EPERM";
+  }
+};
 let ownDir;
 const workDir = () => {
   if (ownDir) return ownDir;
-  ownDir = path.join(os.tmpdir(), "herdr-subagent-streamer", "opencode", String(process.pid));
+  const base = path.join(os.tmpdir(), "herdr-subagent-streamer", "opencode");
+  // A closed herdr tab kills its panes before exit handlers finish, so sweep dirs of dead pids here.
+  let names = [];
+  try {
+    names = fs.readdirSync(base);
+  } catch {}
+  for (const name of names) {
+    if (/^\d+$/.test(name) && !alive(Number(name))) fs.rmSync(path.join(base, name), { recursive: true, force: true });
+  }
+  ownDir = path.join(base, String(process.pid));
   fs.rmSync(ownDir, { recursive: true, force: true });
   fs.mkdirSync(ownDir, { recursive: true });
   process.on("exit", () => fs.rmSync(ownDir, { recursive: true, force: true }));
