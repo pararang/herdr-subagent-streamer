@@ -1,6 +1,6 @@
 {
   "name": "herdr-subagent-streamer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "OMP plugin for live subagent graphs and reusable transcript panes in Herdr or tmux; also supports omo native.",
   "type": "module",
   "license": "MIT",
