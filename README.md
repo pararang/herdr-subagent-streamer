@@ -82,6 +82,28 @@ omp -e ./herdr-subagent-streamer/extension/index.js
 
 The local install links the checkout. See [OMP's plugin documentation](https://omp.sh/docs/plugins) for plugin management.
 
+### opencode
+
+opencode keeps its subagents as child sessions in `~/.local/share/opencode/opencode.db`, so this
+host reads them from there and writes each child's messages out as the transcript the follower
+already prints. Nothing is written to opencode's store.
+
+```bash
+ln -s "$PWD/opencode-plugin/herdr-subagent-streamer.js" ~/.config/opencode/plugins/
+```
+
+The plugin's `setup` starts a watcher that asks herdr which session the pane runs and launches the
+streamer on that session's first subagent, so a pane that never spawns one costs a sleeping shell.
+Start it by hand instead with:
+
+```bash
+bin/streamer-here.sh            # this pane, now
+bin/streamer-here.sh --watch    # wait for the first subagent
+```
+
+`STREAMER_SESSION=<id>` pins the session when herdr does not register one, which is the case for
+`opencode run`. Needs node >= 22.5 for `node:sqlite`, or the `sqlite3` CLI on PATH.
+
 ### omo native
 
 ```bash

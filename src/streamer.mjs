@@ -131,7 +131,7 @@ async function graph(cfg) {
   for (let frame = 0; ; frame++) {
     if (frame % 4 === 0) {
       const tasks = host.list();
-      track(MAIN, foldFeed(cfg.feed).sessionFile);
+      track(MAIN, host.mainTranscript ? host.mainTranscript() : foldFeed(cfg.feed).sessionFile);
       for (const t of tasks) track(t.id, resolve(t.spec).transcript);
       g = buildGraph({ session: cfg.session, tasks, acts });
     }

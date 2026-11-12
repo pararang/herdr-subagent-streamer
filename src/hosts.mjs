@@ -6,6 +6,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { childSessions, sessionStatus, transcriptFor } from "./opencode.mjs";
 
 export const TERMINAL = ["completed", "failed", "cancelled", "aborted", "killed", "lost"];
 
@@ -118,5 +119,17 @@ function resolveOmp({ feed, id }) {
   return { status: a?.status, transcript: a && ompTranscript(a, sessionFile) };
 }
 
-export const resolve = (spec) => (spec.host === "omp" ? resolveOmp(spec) : resolveOmo(spec));
-export const hostFor = ({ host, session, feed }) => (host === "omp" ? ompHost(feed) : omoHost(session));
+// ---------- opencode: subagents are child sessions in sqlite, so both halves live in opencode.mjs ----------
+// There is no feed file here, so the main agent's own session supplies the graph's root transcript.
+export function opencodeHost(sessionId, since) {
+  return { list: () => childSessions(sessionId, since), mainTranscript: () => transcriptFor(sessionId) };
+}
+
+function resolveOpencode({ id }) {
+  return { status: sessionStatus(id), transcript: transcriptFor(id) };
+}
+
+export const resolve = (spec) =>
+  spec.host === "opencode" ? resolveOpencode(spec) : spec.host === "omp" ? resolveOmp(spec) : resolveOmo(spec);
+export const hostFor = ({ host, session, feed, since }) =>
+  host === "opencode" ? opencodeHost(session, since) : host === "omp" ? ompHost(feed) : omoHost(session);
