@@ -14,10 +14,15 @@ export const dbPath = () =>
   process.env.OPENCODE_DB ??
   path.join(process.env.XDG_DATA_HOME ?? path.join(os.homedir(), ".local", "share"), "opencode", "opencode.db");
 
+// Every process rebuilds its transcripts from the start, so a shared file would get one copy per process.
+let ownDir;
 const workDir = () => {
-  const dir = path.join(os.tmpdir(), "herdr-subagent-streamer", "opencode");
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
+  if (ownDir) return ownDir;
+  ownDir = path.join(os.tmpdir(), "herdr-subagent-streamer", "opencode", String(process.pid));
+  fs.rmSync(ownDir, { recursive: true, force: true });
+  fs.mkdirSync(ownDir, { recursive: true });
+  process.on("exit", () => fs.rmSync(ownDir, { recursive: true, force: true }));
+  return ownDir;
 };
 
 // ---------- reading: node:sqlite when the runtime has it, else the sqlite3 CLI ----------
@@ -142,17 +147,20 @@ function recordsFor(row) {
     else if (c.type === "tool") {
       const id = c.id ?? `${row.id}:${content.length}`;
       content.push({ type: "toolCall", id, name: c.name ?? "tool", arguments: c.state?.input ?? {} });
-      const output = c.state?.output;
-      if (output !== undefined && output !== null && output !== "") {
+      const status = c.state?.status;
+      if (status === "completed" || status === "error") {
+        const error = c.state.error;
+        const text =
+          status === "error"
+            ? String(error?.message ?? error ?? "")
+            : (Array.isArray(c.state.content) ? c.state.content : [])
+                .filter((p) => p.type === "text")
+                .map((p) => p.text)
+                .join("\n");
         // A tool result is its own record: that is how the follower colours it and how the graph
         // closes the open call.
         results.push(
-          wrap({
-            role: "toolResult",
-            toolCallId: id,
-            isError: c.state?.status === "error",
-            content: [{ type: "text", text: String(output) }],
-          }),
+          wrap({ role: "toolResult", toolCallId: id, isError: status === "error", content: [{ type: "text", text }] }),
         );
       }
     }
@@ -161,25 +169,24 @@ function recordsFor(row) {
   return out.concat(results);
 }
 
-export function transcriptFor(sessionId) {
+// An assistant message keeps changing until opencode stamps time.completed, even after newer
+// messages exist. One that was abandoned never gets the stamp, but a later idle row ends the turn.
+const isFinal = (row, i, lastIdle) =>
+  row.type !== "assistant" || i < lastIdle || parse(row.data)?.time?.completed != null;
+
+// Append only: the follower tails by line count and the graph by byte offset.
+export function transcriptFor(sessionId, since = 0) {
   const file = path.join(workDir(), `${sessionId}.jsonl`);
-  const from = written.get(sessionId) ?? -1;
-  // A message is still rewritten while it streams, so re-read the newest one each pass rather than
-  // trusting that a seq already seen is final.
   const rows = query(
-    `SELECT id, type, data, seq, time_created FROM session_message WHERE session_id = ? AND seq > ? ORDER BY seq`,
-    [sessionId, from],
+    `SELECT id, type, data, seq, time_created FROM session_message WHERE session_id = ? AND seq > ? AND time_created >= ? ORDER BY seq`,
+    [sessionId, written.get(sessionId) ?? -1, Number(since) || 0],
   );
-  if (!rows.length) {
-    if (!fs.existsSync(file)) fs.writeFileSync(file, "");
-    return file;
-  }
-  // Keep the last message open: it may still gain content on the next poll.
-  const settled = rows.slice(0, -1);
+  const lastIdle = rows.findLastIndex((r) => r.type === "idle");
+  const pending = rows.findIndex((r, i) => !isFinal(r, i, lastIdle));
+  const ready = pending === -1 ? rows : rows.slice(0, pending);
   let text = "";
-  for (const r of settled) for (const rec of recordsFor(r)) text += JSON.stringify(rec) + "\n";
-  if (text) fs.appendFileSync(file, text);
-  else if (!fs.existsSync(file)) fs.writeFileSync(file, "");
-  if (settled.length) written.set(sessionId, Number(settled[settled.length - 1].seq));
+  for (const r of ready) for (const rec of recordsFor(r)) text += JSON.stringify(rec) + "\n";
+  fs.appendFileSync(file, text);
+  if (ready.length) written.set(sessionId, Number(ready[ready.length - 1].seq));
   return file;
 }

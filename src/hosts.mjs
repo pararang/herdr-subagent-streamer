@@ -122,7 +122,7 @@ function resolveOmp({ feed, id }) {
 // ---------- opencode: subagents are child sessions in sqlite, so both halves live in opencode.mjs ----------
 // There is no feed file here, so the main agent's own session supplies the graph's root transcript.
 export function opencodeHost(sessionId, since) {
-  return { list: () => childSessions(sessionId, since), mainTranscript: () => transcriptFor(sessionId) };
+  return { list: () => childSessions(sessionId, since), mainTranscript: () => transcriptFor(sessionId, since) };
 }
 
 function resolveOpencode({ id }) {
