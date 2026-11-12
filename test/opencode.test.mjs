@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import { DatabaseSync } from "node:sqlite";
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), "hss-opencode-"));
@@ -48,6 +49,28 @@ process.stdout.write(fs.readFileSync(transcriptFor("dup"), "utf8"));`;
   };
   assert.deepEqual(runPass(), ["user", "assistant"], "first process");
   assert.deepEqual(runPass(), ["user", "assistant"], "second process");
+});
+
+test("the next process removes transcripts left by a killed process and keeps live ones", async (t) => {
+  add("swept", 0, "user", user("hello"));
+  const holder = `const { transcriptFor } = await import(${JSON.stringify(new URL("../src/opencode.mjs", import.meta.url).href)});
+console.log(transcriptFor("swept")); setInterval(() => {}, 1000);`;
+  const start = async () => {
+    const child = spawn(process.execPath, ["--no-warnings", "--input-type=module", "-e", holder], { env: process.env, stdio: ["ignore", "pipe", "inherit"] });
+    const [line] = await once(child.stdout, "data");
+    return { child, dir: path.dirname(line.toString().trim()) };
+  };
+  const live = await start();
+  t.after(() => live.child.kill());
+  const killed = await start();
+  killed.child.kill("SIGKILL");
+  await once(killed.child, "exit");
+  assert.ok(fs.existsSync(killed.dir), "a killed process leaves its transcripts behind");
+
+  const next = spawnSync(process.execPath, ["--no-warnings", "--input-type=module", "-e", holder.replace("setInterval(() => {}, 1000);", "")], { env: process.env, encoding: "utf8" });
+  assert.equal(next.status, 0, next.stderr);
+  assert.equal(fs.existsSync(killed.dir), false, "the next process swept the dead pid's transcripts");
+  assert.ok(fs.existsSync(live.dir), "a running process keeps its transcripts");
 });
 
 test("a tool that completes after a newer message exists still yields its result", () => {
