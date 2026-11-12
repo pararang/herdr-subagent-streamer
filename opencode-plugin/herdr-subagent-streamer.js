@@ -17,13 +17,13 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = process.env.HERDR_SUBAGENT_STREAMER_DIR ?? path.resolve(here, "..");
 const LAUNCHER = path.join(root, "bin", "streamer-here.sh");
 
-const inMux = process.env.HERDR_ENV === "1" || !!process.env.TMUX;
-const pane = process.env.HERDR_PANE_ID ?? process.env.TMUX_PANE ?? "";
+const inHerdr = process.env.HERDR_ENV === "1";
+const pane = process.env.HERDR_PANE_ID ?? "";
 
 export default {
   id: "herdr-subagent-streamer",
   async setup() {
-    if (!inMux || !pane || !fs.existsSync(LAUNCHER)) return () => {};
+    if (!inHerdr || !pane || !fs.existsSync(LAUNCHER)) return () => {};
 
     const log = path.join(os.tmpdir(), "herdr-subagent-streamer", `${pane.replace(/\W/g, "_")}.watch.log`);
     fs.mkdirSync(path.dirname(log), { recursive: true });
@@ -31,12 +31,11 @@ export default {
     const child = spawn("bash", [LAUNCHER, "--watch", pane], {
       detached: true,
       stdio: ["ignore", out, out],
-      env: process.env,
+      env: { ...process.env, STREAMER_HOST_PID: String(process.pid) },
     });
+    child.on("error", (error) => fs.appendFileSync(log, `streamer-here: ${error.message}\n`));
     child.unref();
 
-    // Teardown stops the watcher only. A streamer it already started owns its own lifetime and
-    // closes once its subagents have settled.
     return () => {
       try {
         process.kill(child.pid);

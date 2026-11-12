@@ -1,6 +1,6 @@
 // Host adapters: turn "where does this coding agent keep its subagents" into one shape.
 //   list()            -> [{ id, name, status, category, created, started, ended, spec, parent?, description? }]
-//                        parent: the spawning session's id (omo only; omp subagents all hang off the main agent)
+//                        parent: the spawning session's id (omo and opencode; omp subagents all hang off the main agent)
 //   resolve(spec)     -> { status, transcript }   (used by the per-split follower)
 // Plain node builtins only, so this runs under node >= 18 and bun.
 import fs from "node:fs";
@@ -122,7 +122,7 @@ function resolveOmp({ feed, id }) {
 // ---------- opencode: subagents are child sessions in sqlite, so both halves live in opencode.mjs ----------
 // There is no feed file here, so the main agent's own session supplies the graph's root transcript.
 export function opencodeHost(sessionId, since) {
-  return { list: () => childSessions(sessionId, since), mainTranscript: () => transcriptFor(sessionId) };
+  return { list: () => childSessions(sessionId, since), mainTranscript: () => transcriptFor(sessionId, since) };
 }
 
 function resolveOpencode({ id }) {

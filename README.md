@@ -94,8 +94,11 @@ already prints. Nothing is written to opencode's store.
 ln -s "$PWD/opencode-plugin/herdr-subagent-streamer.js" ~/.config/opencode/plugins/
 ```
 
-The plugin's `setup` starts a watcher that asks herdr which session the pane runs and launches the
-streamer on that session's first subagent, so a pane that never spawns one costs a sleeping shell.
+The plugin needs herdr: it does nothing in tmux or a plain terminal. Its `setup` starts a watcher
+that asks herdr which session the pane runs and launches the streamer on that session's first
+subagent, so a pane that never spawns one costs a sleeping shell. The streamer then picks up later
+subagents too, and stops once opencode has exited and its subagents have settled.
+
 Start it by hand instead with:
 
 ```bash
@@ -103,8 +106,16 @@ bin/streamer-here.sh            # this pane, now
 bin/streamer-here.sh --watch    # wait for the first subagent
 ```
 
-`STREAMER_SESSION=<id>` pins the session when herdr does not register one, which is the case for
-`opencode run`. Needs node >= 22.5 for `node:sqlite`, or the `sqlite3` CLI on PATH.
+A manual run streams until you stop it: kill the pid it prints. `STREAMER_SESSION=<id>` pins the
+session when herdr does not register one, which is the case for `opencode run`.
+
+Requirements for the opencode host:
+
+- macOS or Linux, because the launcher is a bash script.
+- `python3` on PATH.
+- A node with `node:sqlite` (node >= 22.13, or 22.5+ with `--experimental-sqlite`), or the `sqlite3`
+  CLI on PATH.
+- The `sqlite3` CLI for `--watch`, which the plugin uses.
 
 ### omo native
 

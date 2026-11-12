@@ -21,7 +21,7 @@ let subscribed = false; // module state is shared by child sessions, so subscrib
 
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 const readPid = () => { try { return JSON.parse(fs.readFileSync(pidFile, "utf8")); } catch { return null; } };
-const runtime = () => [process.execPath, "bun", "node"].find((r) => /(^|[\\/])(bun|node)(\.exe)?$/.test(r) && spawnSync(r, ["--version"]).status === 0);
+const runtime = () => [process.execPath, "bun", "node"].find((r) => /(^|[\\/])(bun|node)(\.exe)?$/.test(r) && spawnSync(r, ["--version"], { windowsHide: true }).status === 0);
 
 function start(ctx) {
   const session = process.env.PI_SESSION_ID || ctx.sessionManager?.getSessionId?.();
@@ -38,7 +38,7 @@ function start(ctx) {
   fs.writeFileSync(feedFile, JSON.stringify({ type: "session", sessionFile: ctx.sessionManager?.getSessionFile?.() }) + "\n");
   const cfg = Buffer.from(JSON.stringify({ host, session, feed: feedFile, pid: process.pid })).toString("base64url");
   const log = fs.openSync(logFile, "a");
-  const child = spawn(rt, [STREAMER, "auto", cfg], { detached: true, stdio: ["ignore", log, log], env: process.env });
+  const child = spawn(rt, [STREAMER, "auto", cfg], { detached: true, stdio: ["ignore", log, log], env: process.env, windowsHide: true });
   child.unref();
   fs.writeFileSync(pidFile, JSON.stringify({ pid: child.pid, owner: process.pid, session }));
 }

@@ -1,10 +1,6 @@
 #!/bin/bash
 # Start the subagent streamer for an opencode pane.
 #
-# This opencode build imports files in ~/.config/opencode/plugins but never calls their exported
-# factory, so the plugin cannot hook session events (verified with a minimal reference plugin).
-# Herdr already knows which session each pane runs, so take it from there instead.
-#
 #   streamer-here.sh [PANE_ID]           start now
 #   streamer-here.sh --watch [PANE_ID]   wait for this pane to spawn a subagent, then start
 #
@@ -23,6 +19,7 @@ die() { echo "streamer-here: $*" >&2; exit 1; }
 
 [ -f "$STREAMER" ] || die "no streamer at $STREAMER"
 command -v "$HERDR" >/dev/null || die "herdr is not on PATH"
+command -v python3 >/dev/null || die "needs python3"
 
 if [ -z "$PANE" ]; then
   PANE=$("$HERDR" pane get --current 2>/dev/null | python3 -c 'import sys,json;print(json.load(sys.stdin)["result"]["pane"]["pane_id"])' 2>/dev/null)
@@ -74,6 +71,7 @@ fi
 SINCE_MS=$(python3 -c 'import time;print(int(time.time()*1000))')
 
 if [ "$WATCH" = 1 ]; then
+  command -v sqlite3 >/dev/null || die "watch mode needs the sqlite3 CLI"
   DB=${OPENCODE_DB:-$HOME/.local/share/opencode/opencode.db}
   # Poll cheaply until this session actually spawns a subagent; a pane that never does costs
   # nothing but this shell.
@@ -101,12 +99,12 @@ fi
 
 printf '{"type":"session","id":"%s"}\n' "$SESSION" > "$FEED"
 # `since` scopes the view to subagents spawned from now on, not the session's whole history.
-CFG=$(SESSION="$SESSION" FEED="$FEED" SINCE="$SINCE_MS" python3 -c '
+CFG=$(SESSION="$SESSION" FEED="$FEED" SINCE="$SINCE_MS" HOST_PID="${STREAMER_HOST_PID:-}" python3 -c '
 import base64, json, os
-print(base64.urlsafe_b64encode(json.dumps({
-    "host": "opencode", "session": os.environ["SESSION"], "feed": os.environ["FEED"],
-    "pid": os.getpid(), "since": int(os.environ["SINCE"]),
-}).encode()).decode().rstrip("="))')
+cfg = {"host": "opencode", "session": os.environ["SESSION"], "feed": os.environ["FEED"], "since": int(os.environ["SINCE"])}
+if os.environ["HOST_PID"]:
+    cfg["pid"] = int(os.environ["HOST_PID"])
+print(base64.urlsafe_b64encode(json.dumps(cfg).encode()).decode().rstrip("="))')
 
 HERDR_SUBAGENT_STREAMER_HOST=opencode HERDR_ENV=1 HERDR_PANE_ID="$PANE" \
   nohup "$RT" "$STREAMER" auto "$CFG" >> "$LOG" 2>&1 &
