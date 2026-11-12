@@ -34,7 +34,9 @@ test("omo: a stale running record settles once the transcript ends in a quiet pl
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, "x.jsonl");
   const msg = (role, content) => JSON.stringify({ type: "message", message: { role, content } }) + "\n";
-  const age = () => { const old = new Date(Date.now() - 60000); fs.utimesSync(file, old, old); };
+  // One timestamp for both rewrites, as a fast rewrite or a coarse-mtime filesystem produces.
+  const quiet = new Date(Date.now() - 60000);
+  const age = () => fs.utimesSync(file, quiet, quiet);
 
   fs.writeFileSync(file, msg("assistant", [{ type: "toolCall", name: "bash" }]));
   age();
