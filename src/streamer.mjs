@@ -20,6 +20,7 @@ import { loadConfig } from "./config.mjs";
 import { MAIN, buildGraph, createActivity, render } from "./graph.mjs";
 import { selfCommand } from "./command.mjs";
 import { detectMux, muxFor } from "./mux.mjs";
+import { createTail } from "./transcript.mjs";
 
 const SELF = selfCommand(process.execPath, fileURLToPath(import.meta.url), process.platform);
 const CLOSE_AFTER_MS = Number(process.env.HERDR_SUBAGENT_STREAMER_CLOSE_MS ?? 5000); // 0 keeps the tab open
@@ -46,14 +47,11 @@ function receipt(assignment, phase, details = {}) {
 // ---------- follow: pretty-tail one transcript ----------
 async function follow(assignment) {
   const { spec, paneId, label, hostPid, backend } = assignment;
-  let done = 0, file;
+  let tail;
   const drain = (transcript) => {
-    if (!transcript || !fs.existsSync(transcript)) return;
-    if (file !== transcript) { file = transcript; done = 0; }
-    const lines = fs.readFileSync(transcript, "utf8").split("\n");
-    lines.pop(); // A partial JSONL record still waits for its newline, including at completion.
-    for (let i = done; i < lines.length; i++) print(lines[i]);
-    done = lines.length;
+    if (!transcript) return;
+    if (tail?.file !== transcript) tail = createTail(transcript);
+    for (const e of tail.poll()) print(e);
   };
   receipt(assignment, "started");
   try {
@@ -69,7 +67,7 @@ async function follow(assignment) {
         drain(resolve(spec).transcript);
         console.log(C(1, `== ${hostGone ? "host exited" : status ?? "inactive"} ==`));
         await flush();
-        receipt(assignment, "drained", { transcript: file, lines: done });
+        receipt(assignment, "drained");
         return;
       }
       await sleep(FOLLOW_POLL_MS);
@@ -80,8 +78,7 @@ async function follow(assignment) {
   }
 }
 
-function print(line) {
-  let e; try { e = JSON.parse(line); } catch { return; }
+function print(e) {
   const m = e.message; if (e.type !== "message" || !m) return;
   for (const c of Array.isArray(m.content) ? m.content : [{ type: "text", text: m.content }]) {
     if (m.role === "user" && c.type === "text") console.log(C(35, "PROMPT ") + clip(c.text, 500));

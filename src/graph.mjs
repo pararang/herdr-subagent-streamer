@@ -3,7 +3,7 @@
 //   buildGraph(...)      -> { nodes: Map<id, Node>, edges: Edge[] }   main agent is node MAIN
 //   render(graph, view)  -> one ANSI frame, exactly view.rows lines
 // Spawn edges follow the task record's parent session; message edges come from task_send calls in transcripts.
-import fs from "node:fs";
+import { createTail, endsTurn } from "./transcript.mjs";
 
 export const MAIN = "main";
 const SEND = /(^|__)task_send$/;
@@ -11,37 +11,24 @@ const shortTool = (name) => String(name).split("__").pop();
 
 // ---------- activity ----------
 export function createActivity(file) {
-  let offset = 0, rest = Buffer.alloc(0);
+  const tail = createTail(file);
   // turn: "working" mid-turn (prompt, tool call, or tool result last), "waiting" once a reply ends the turn
   const a = { file, sessionId: undefined, tools: 0, open: new Map(), sends: [], turn: "waiting" };
   a.poll = () => {
-    let fd; try { fd = fs.openSync(file, "r"); } catch { return a; }
-    try {
-      const size = fs.fstatSync(fd).size;
-      if (size <= offset) return a;
-      const buf = Buffer.alloc(size - offset);
-      fs.readSync(fd, buf, 0, buf.length, offset);
-      offset = size;
-      rest = Buffer.concat([rest, buf]);
-    } finally { fs.closeSync(fd); }
-    const end = rest.lastIndexOf(0x0a); // keep a partial last line (and any split UTF-8 sequence) for the next poll
-    if (end < 0) return a;
-    for (const line of rest.subarray(0, end).toString("utf8").split("\n")) ingest(a, line);
-    rest = rest.subarray(end + 1);
+    for (const e of tail.poll()) ingest(a, e);
     return a;
   };
   return a;
 }
 
-function ingest(a, line) {
-  let e; try { e = JSON.parse(line); } catch { return; }
+function ingest(a, e) {
   if (e.type === "session") { a.sessionId ??= e.id; return; }
   const m = e.message;
   if (e.type !== "message" || !m) return;
   if (m.role === "user") { a.turn = "working"; return; }
   if (m.role === "toolResult") { a.open.delete(m.toolCallId); a.turn = "working"; return; }
   if (m.role !== "assistant" || !Array.isArray(m.content)) return;
-  a.turn = m.content.some((c) => c.type === "toolCall") ? "working" : "waiting";
+  a.turn = endsTurn(m) ? "waiting" : "working";
   for (const c of m.content) {
     if (c.type !== "toolCall") continue;
     a.tools++;

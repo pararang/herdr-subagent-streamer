@@ -9,6 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { childSessions, sessionStatus, transcriptFor } from "./opencode.mjs";
+import { endsTurn } from "./transcript.mjs";
 
 export const TERMINAL = ["completed", "failed", "cancelled", "aborted", "killed", "lost"];
 
@@ -47,8 +48,7 @@ function finishedAt(file) {
   if (c?.stamp !== stamp(st)) {
     const lines = fs.readFileSync(file, "utf8").split("\n").filter(Boolean);
     let last; for (let i = lines.length - 1; i >= 0 && !last; i--) { try { const e = JSON.parse(lines[i]); if (e.type === "message") last = e.message; } catch {} }
-    const plainReply = last?.role === "assistant" && Array.isArray(last.content) && !last.content.some((x) => x.type === "toolCall");
-    c = { stamp: stamp(st), done: !!plainReply };
+    c = { stamp: stamp(st), done: endsTurn(last) };
     endCache.set(file, c);
   }
   return c.done ? mtimeMs : null;
