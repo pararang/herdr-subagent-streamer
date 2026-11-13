@@ -43,11 +43,53 @@ _Avoid_: mux backend, terminal
 The one multiplexer tab per session that shows its subagents, named after the agent's tab with a `-subagents` suffix.
 _Avoid_: window, overview
 
+Shown here beside the agent's tab, in `tail` mode:
+
+```
+tab "1"               tab "1-subagents"
++-----------------+   +-------------------+-------------------+
+| main agent      |   | board (status)    | scout   (live)    |
+|                 |   |                   +-------------------+
+|                 |   |                   | fixer   (live)    |
++-----------------+   +-------------------+-------------------+
+```
+
 **Stream mode**:
 Which panes the subagents tab holds: `hybrid` (graph and transcript panes), `tail` (board and transcript panes) or `graph` (graph only).
 
+The `tail` layout is drawn above. The `hybrid` layout puts the graph in the root pane instead of the board:
+
+```
+tab "1-subagents" (hybrid)
++-------------------+-------------------+
+| graph             | scout   (live)    |
+|                   +-------------------+
+|                   | fixer   (live)    |
++-------------------+-------------------+
+```
+
+In `graph` mode the graph is the tab's only pane.
+
 **Graph**:
-The root pane that draws the agent and its subagents as cards joined by spawn and message edges.
+The root pane that draws the agent and its subagents as cards joined by spawn and message edges. The agent is on top, spawn edges run down to each subagent (nested ones under the subagent that spawned them), and `task_send` messages between subagents are drawn as magenta `├─▶` edges. Edges animate while their agent is working.
+
+```
+ subagents graph 01a18b81 1 running · 1 settled
+
+ ╭─ main ─────────────────╮
+ │ ~ waiting              │
+ │ 2 calls                │
+ ╰────────────┬───────────╯
+              ●
+              ├──●───●───●───●───●───●───●┐
+              ▼                           ▼
+ ╭─ alpha ────────────────╮  ╭─ beta ─────────────────╮
+ │ + completed 14s        │  │ * running 30s          │
+ │ 4 calls · 1 msg        │  │ > eval · 2 calls       │
+ ╰────────────────────────╯  ╰────────────────────────╯
+
+ ● active   ─ spawn   ─ task_send
+```
 
 **Board**:
 The root pane in `tail` mode that lists every subagent with its status.

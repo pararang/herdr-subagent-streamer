@@ -14,7 +14,7 @@ The streamer opens a tab named `<main agent's tab>-subagents` without taking foc
 | `tail` | A status board, plus the same transcript panes. |
 | `graph` | The graph only. |
 
-Only workers that are `started` or `running` get a transcript pane. A finished worker's pane keeps its output until another worker needs it, and the pane count grows only to the peak number of active workers. The graph keeps every known subagent in view, including finished ones, and draws `task_send` messages between subagents.
+`GLOSSARY.md` draws each layout. Only workers that are `started` or `running` get a transcript pane. A finished worker's pane keeps its output until another worker needs it, and the pane count grows only to the peak number of active workers. The graph keeps every known subagent in view, including finished ones, and draws `task_send` messages between subagents.
 
 ## Install
 
