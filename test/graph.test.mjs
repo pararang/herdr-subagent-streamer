@@ -148,6 +148,7 @@ test("graph: an unknown parent session or a parent loop hangs the subagent off m
   const g = buildGraph({ session: "S0", tasks, acts });
   assert.equal(g.nodes.get("st_x").parent, MAIN);
   assert.ok([g.nodes.get("st_y").parent, g.nodes.get("st_z").parent].includes(MAIN), "loop broken at main");
+  assert.deepEqual(g.edges.map((e) => [e.kind, e.from, e.to]), tasks.map((t) => ["spawn", g.nodes.get(t.id).parent, t.id]), "spawn edges follow the repaired parents");
   assert.equal(render(g, { cols: 80, rows: 20 }).length, 20);
 });
 
