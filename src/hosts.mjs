@@ -12,6 +12,7 @@ import { childSessions, sessionStatus, transcriptFor } from "./opencode.mjs";
 import { endsTurn } from "./transcript.mjs";
 
 export const TERMINAL = ["completed", "failed", "cancelled", "aborted", "killed", "lost"];
+export const isActive = (status) => status === "started" || status === "running";
 
 const readJson = (p) => { try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch { return null; } };
 const ls = (d) => { try { return fs.readdirSync(d); } catch { return []; } };
