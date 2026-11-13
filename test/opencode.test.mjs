@@ -29,7 +29,7 @@ const assistant = (content, completed = true) => ({ content, time: completed ? {
 const tool = (status, extra = {}) => ({ type: "tool", id: "call1", name: "bash", state: { status, input: { command: "ls" }, content: [], ...extra } });
 
 const { transcriptFor, childSessions, sessionStatus } = await import("../src/opencode.mjs");
-const { opencodeHost } = await import("../src/hosts.mjs");
+const { hostFor } = await import("../src/hosts.mjs");
 
 const messages = (text) => text.split("\n").filter(Boolean).map((line) => JSON.parse(line).message);
 const read = (file) => messages(fs.readFileSync(file, "utf8"));
@@ -125,7 +125,7 @@ test("the main transcript starts at the launch time, not the session's history",
   add("root", 1, "assistant", assistant([{ type: "text", text: "old answer" }]), now - 60000);
   add("root", 2, "user", user("new prompt"));
   add("root", 3, "assistant", assistant([{ type: "text", text: "new answer" }]));
-  const recs = read(opencodeHost("root", now - 1000).mainTranscript());
+  const recs = read(hostFor({ host: "opencode", session: "root", since: now - 1000 }).mainTranscript());
   assert.deepEqual(recs.map((m) => m.content[0].text), ["new prompt", "new answer"]);
 });
 

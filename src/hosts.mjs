@@ -1,14 +1,18 @@
 // Host adapters: turn "where does this coding agent keep its subagents" into one shape.
-//   list()            -> [{ id, name, status, category, created, started, ended, spec, parent?, description? }]
-//                        parent: the spawning session's id (omo and opencode; omp subagents all hang off the main agent)
-//   resolve(spec)     -> { status, transcript }   (used by the per-split follower)
+//   hostFor(cfg).list()           -> [{ id, name, status, category, created, started, ended, spec, parent?, description? }]
+//                                    parent: the spawning session's id (omo and opencode; omp subagents all hang off the main agent)
+//   hostFor(cfg).mainTranscript() -> the main agent's transcript file, the graph's root card
+//   hostFor(cfg).diesWithAgent    -> whether subagents end when the agent process exits
+//   resolve(spec)                 -> { status, transcript }   (used by the per-split follower)
 // Plain node builtins only, so this runs under node >= 18 and bun.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { childSessions, sessionStatus, transcriptFor } from "./opencode.mjs";
+import { endsTurn } from "./transcript.mjs";
 
 export const TERMINAL = ["completed", "failed", "cancelled", "aborted", "killed", "lost"];
+export const isActive = (status) => status === "started" || status === "running";
 
 const readJson = (p) => { try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch { return null; } };
 const ls = (d) => { try { return fs.readdirSync(d); } catch { return []; } };
@@ -45,36 +49,31 @@ function finishedAt(file) {
   if (c?.stamp !== stamp(st)) {
     const lines = fs.readFileSync(file, "utf8").split("\n").filter(Boolean);
     let last; for (let i = lines.length - 1; i >= 0 && !last; i--) { try { const e = JSON.parse(lines[i]); if (e.type === "message") last = e.message; } catch {} }
-    const plainReply = last?.role === "assistant" && Array.isArray(last.content) && !last.content.some((x) => x.type === "toolCall");
-    c = { stamp: stamp(st), done: !!plainReply };
+    c = { stamp: stamp(st), done: endsTurn(last) };
     endCache.set(file, c);
   }
   return c.done ? mtimeMs : null;
 }
 
-export function omoHost(sessionId) {
+function listOmo({ session }) {
   const root = path.join(agentDir(), "projects");
-  return {
-    list() {
-      const out = [];
-      for (const proj of ls(root)) {
-        const dir = path.join(root, proj, "senpi-task", "tasks");
-        for (const f of ls(dir)) {
-          if (!f.endsWith(".json")) continue;
-          const file = path.join(dir, f);
-          let t; try { t = cachedJson(file); } catch { continue; }
-          if (t?.root_session_id !== sessionId) continue; // this session and its descendants only
-          let { status, terminal_at: ended } = t;
-          if (!TERMINAL.includes(status)) {
-            const t0 = finishedAt(transcriptOf(file) ?? "");
-            if (t0) { status = "completed"; ended = new Date(t0).toISOString(); }
-          }
-          out.push({ id: t.task_id, name: String(t.name ?? t.task_id), status, category: t.category ?? "", created: t.created_at, started: t.started_at, ended, parent: t.parent_session_id, description: t.description, spec: { host: "omo", taskFile: file } });
-        }
+  const out = [];
+  for (const proj of ls(root)) {
+    const dir = path.join(root, proj, "senpi-task", "tasks");
+    for (const f of ls(dir)) {
+      if (!f.endsWith(".json")) continue;
+      const file = path.join(dir, f);
+      let t; try { t = cachedJson(file); } catch { continue; }
+      if (t?.root_session_id !== session) continue; // this session and its descendants only
+      let { status, terminal_at: ended } = t;
+      if (!TERMINAL.includes(status)) {
+        const t0 = finishedAt(transcriptOf(file) ?? "");
+        if (t0) { status = "completed"; ended = new Date(t0).toISOString(); }
       }
-      return out.sort((a, b) => String(a.created).localeCompare(String(b.created)));
-    },
-  };
+      out.push({ id: t.task_id, name: String(t.name ?? t.task_id), status, category: t.category ?? "", created: t.created_at, started: t.started_at, ended, parent: t.parent_session_id, description: t.description, spec: { host: "omo", taskFile: file } });
+    }
+  }
+  return out.sort((a, b) => String(a.created).localeCompare(String(b.created)));
 }
 
 function resolveOmo({ taskFile }) {
@@ -86,7 +85,7 @@ function resolveOmo({ taskFile }) {
 
 // ---------- omp: status lives in memory, so the extension forwards task:subagent:lifecycle to a feed ----------
 // Feed lines: {type:"session", sessionFile} once, then {ts, id, agent, status, sessionFile?} per event.
-export function foldFeed(feed) {
+function foldFeed(feed) {
   let text = ""; try { text = fs.readFileSync(feed, "utf8"); } catch { return { sessionFile: undefined, agents: [] }; }
   let sessionFile; const byId = new Map();
   for (const line of text.split("\n")) {
@@ -102,19 +101,14 @@ export function foldFeed(feed) {
 // omp writes each child's history to <session file minus .jsonl>/<id>.jsonl
 const ompTranscript = (a, sessionFile) => a.sessionFile ?? (sessionFile?.endsWith(".jsonl") ? path.join(sessionFile.slice(0, -6), `${a.id}.jsonl`) : undefined);
 
-export function ompHost(feed) {
-  return {
-    list() {
-      return foldFeed(feed).agents.map((a) => ({
-        id: a.id, name: a.id, category: a.agent,
-        status: a.status === "started" ? "running" : a.status,
-        created: new Date(a.first).toISOString(), started: new Date(a.first).toISOString(),
-        ended: TERMINAL.includes(a.status) ? new Date(a.last).toISOString() : undefined,
-        spec: { host: "omp", feed, id: a.id },
-      }));
-    },
-  };
-}
+const listOmp = ({ feed }) =>
+  foldFeed(feed).agents.map((a) => ({
+    id: a.id, name: a.id, category: a.agent,
+    status: a.status === "started" ? "running" : a.status,
+    created: new Date(a.first).toISOString(), started: new Date(a.first).toISOString(),
+    ended: TERMINAL.includes(a.status) ? new Date(a.last).toISOString() : undefined,
+    spec: { host: "omp", feed, id: a.id },
+  }));
 
 function resolveOmp({ feed, id }) {
   const { sessionFile, agents } = foldFeed(feed);
@@ -122,17 +116,25 @@ function resolveOmp({ feed, id }) {
   return { status: a?.status, transcript: a && ompTranscript(a, sessionFile) };
 }
 
-// ---------- opencode: subagents are child sessions in sqlite, so both halves live in opencode.mjs ----------
-// There is no feed file here, so the main agent's own session supplies the graph's root transcript.
-export function opencodeHost(sessionId, since) {
-  return { list: () => childSessions(sessionId, since), mainTranscript: () => transcriptFor(sessionId, since) };
-}
+// The extension writes the main agent's session file at the head of the feed, for omo and omp alike.
+const feedTranscript = ({ feed }) => foldFeed(feed).sessionFile;
 
-function resolveOpencode({ id }) {
-  return { status: sessionStatus(id), transcript: transcriptFor(id) };
-}
+// omp subagents run inside the agent process; omo and opencode subagents are separate sessions.
+const HOSTS = {
+  omo: { list: listOmo, resolve: resolveOmo, mainTranscript: feedTranscript, diesWithAgent: false },
+  omp: { list: listOmp, resolve: resolveOmp, mainTranscript: feedTranscript, diesWithAgent: true },
+  opencode: {
+    list: ({ session, since }) => childSessions(session, since),
+    resolve: ({ id }) => ({ status: sessionStatus(id), transcript: transcriptFor(id) }),
+    // There is no feed file here, so the main agent's own session supplies the graph's root transcript.
+    mainTranscript: ({ session, since }) => transcriptFor(session, since),
+    diesWithAgent: false,
+  },
+};
+const lookup = (name) => HOSTS[name] ?? HOSTS.omo;
 
-export const resolve = (spec) =>
-  spec.host === "opencode" ? resolveOpencode(spec) : spec.host === "omp" ? resolveOmp(spec) : resolveOmo(spec);
-export const hostFor = ({ host, session, feed, since }) =>
-  host === "opencode" ? opencodeHost(session, since) : host === "omp" ? ompHost(feed) : omoHost(session);
+export const resolve = (spec) => lookup(spec.host).resolve(spec);
+export function hostFor(cfg) {
+  const h = lookup(cfg.host);
+  return { list: () => h.list(cfg), mainTranscript: () => h.mainTranscript(cfg), diesWithAgent: h.diesWithAgent };
+}

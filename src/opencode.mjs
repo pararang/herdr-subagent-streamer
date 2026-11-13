@@ -10,7 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
-export const dbPath = () =>
+const dbPath = () =>
   process.env.OPENCODE_DB ??
   path.join(process.env.XDG_DATA_HOME ?? path.join(os.homedir(), ".local", "share"), "opencode", "opencode.db");
 
