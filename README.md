@@ -111,11 +111,9 @@ session when herdr does not register one, which is the case for `opencode run`.
 
 Requirements for the opencode host:
 
-- macOS or Linux, because the launcher is a bash script.
-- `python3` on PATH.
-- A node with `node:sqlite` (node >= 22.13, or 22.5+ with `--experimental-sqlite`), or the `sqlite3`
-  CLI on PATH.
-- The `sqlite3` CLI for `--watch`, which the plugin uses.
+- macOS or Linux, because the plugin starts the launcher through bash.
+- `bun`, or a node with `node:sqlite` (node >= 22.13, or 22.5+ with `--experimental-sqlite`). Without
+  `node:sqlite`, the `sqlite3` CLI on PATH.
 
 ### omo native
 
