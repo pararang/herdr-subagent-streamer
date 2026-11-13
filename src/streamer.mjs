@@ -14,12 +14,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { TERMINAL, foldFeed, hostFor, resolve } from "./hosts.mjs";
 import { loadConfig } from "./config.mjs";
 import { MAIN, buildGraph, createActivity, render } from "./graph.mjs";
 import { selfCommand } from "./command.mjs";
+import { detectMux, muxFor } from "./mux.mjs";
 
 const SELF = selfCommand(process.execPath, fileURLToPath(import.meta.url), process.platform);
 const CLOSE_AFTER_MS = Number(process.env.HERDR_SUBAGENT_STREAMER_CLOSE_MS ?? 5000); // 0 keeps the tab open
@@ -28,8 +28,6 @@ const FOLLOW_POLL_MS = 400;
 const AUTO_POLL_MS = 1000;
 const FOLLOW_START_TIMEOUT_MS = 10000;
 const RESET_TRANSCRIPT = "\x1b[3J\x1b[H\x1b[2J";
-const IDLE_SHELL_COMMAND = "exec /bin/sh";
-const mux = process.env.HERDR_SUBAGENT_STREAMER_MUX ?? (process.env.HERDR_ENV === "1" ? "herdr" : process.env.TMUX ? "tmux" : "");
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const C = (n, s) => `\x1b[${n}m${s}\x1b[0m`;
@@ -60,11 +58,7 @@ async function follow(assignment) {
   receipt(assignment, "started");
   try {
     await flush(RESET_TRANSCRIPT);
-    if (backend === "herdr") run("herdr", ["pane", "rename", paneId, label]);
-    else {
-      run("tmux", ["clear-history", "-t", paneId]);
-      run("tmux", ["select-pane", "-t", paneId, "-T", label]);
-    }
+    muxFor(backend).retitle(paneId, label);
     console.log(C(1, `== ${label} ==`));
     while (true) {
       const { status, transcript } = resolve(spec);
@@ -142,66 +136,6 @@ async function graph(cfg) {
   }
 }
 
-// ---------- multiplexer ----------
-const run = (cmd, args) => {
-  const r = spawnSync(cmd, args, { encoding: "utf8", windowsHide: true });
-  if (r.status !== 0) throw new Error(`${cmd} ${args.join(" ")}: ${(r.stderr || r.error || "").toString().trim()}`);
-  return r.stdout.trim();
-};
-const hj = (...a) => JSON.parse(run("herdr", a)).result;
-
-// Name of the tab/window the main agent runs in; the subagents tab is named after it.
-const mainTabLabel = () => (mux === "herdr" ? hj("tab", "get", process.env.HERDR_TAB_ID ?? "").tab.label : run("tmux", ["display", "-p", "-t", process.env.TMUX_PANE ?? "", "#{window_name}"]));
-
-// Returns the root pane id and a handle for closeTab (herdr tab id / tmux pane id, whose window gets killed).
-function openTab(label, cmd) {
-  if (mux === "herdr") {
-    const r = hj("tab", "create", "--workspace", process.env.HERDR_WORKSPACE_ID ?? "", "--label", label, "--no-focus");
-    try {
-      run("herdr", ["pane", "run", r.root_pane.pane_id, cmd]);
-      return { pane: r.root_pane.pane_id, tab: r.tab.tab_id };
-    } catch (error) {
-      try { closeTab(r.tab.tab_id); }
-      catch (cleanupError) { console.error(`tab cleanup failed: ${cleanupError.message}`); }
-      throw error;
-    }
-  }
-  const pane = run("tmux", ["new-window", "-d", "-P", "-F", "#{pane_id}", "-n", label, cmd]);
-  return { pane, tab: pane };
-}
-
-// Split off `from`; alternate right/down so a fan-out stays a grid. Returns the new pane id.
-function openPane(from, i) {
-  if (mux === "herdr") {
-    return hj("pane", "split", from, "--direction", i % 2 ? "right" : "down", "--no-focus", "--cwd", process.cwd()).pane.pane_id;
-  }
-  return run("tmux", ["split-window", "-d", "-P", "-F", "#{pane_id}", "-t", from, IDLE_SHELL_COMMAND]);
-}
-
-function startPane(slot, assignment) {
-  const cmd = `${SELF} follow ${enc(assignment)}`;
-  const initialShell = slot.initialShell;
-  if (mux === "tmux" && initialShell) {
-    run("tmux", ["set-option", "-p", "-t", slot.paneId, "remain-on-exit", "on"]);
-    try { run("tmux", ["set-option", "-p", "-t", slot.paneId, "remain-on-exit-format", ""]); }
-    catch (error) { console.error(`pane status format unavailable: ${error.message}`); }
-    run("tmux", ["select-layout", "-t", slot.paneId, "tiled"]);
-  }
-  slot.initialShell = false;
-  if (mux === "herdr") run("herdr", ["pane", "run", slot.paneId, cmd]);
-  else run("tmux", ["respawn-pane", ...(initialShell ? ["-k"] : []), "-t", slot.paneId, cmd]);
-}
-
-const closeTab = (tab) => (mux === "herdr" ? run("herdr", ["tab", "close", tab]) : run("tmux", ["kill-window", "-t", tab]));
-const closePane = (pane) => (mux === "herdr" ? run("herdr", ["pane", "close", pane]) : run("tmux", ["kill-pane", "-t", pane]));
-function checkPane(pane) {
-  if (mux === "herdr") return hj("pane", "get", pane);
-  const found = run("tmux", ["display", "-p", "-t", pane, "#{pane_id}"]);
-  if (found !== pane) throw new Error(`pane ${pane} not found`);
-  return found;
-}
-const checkTab = (tab) => (mux === "herdr" ? hj("tab", "get", tab) : checkPane(tab));
-
 const MODES = {
   hybrid: { root: "graph", transcripts: true },
   tail: { root: "board", transcripts: true },
@@ -212,6 +146,8 @@ const MODES = {
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 
 async function auto(cfg) {
+  const muxName = detectMux();
+  const mux = muxFor(muxName);
   if (!mux) throw new Error("needs herdr (HERDR_ENV=1) or tmux ($TMUX)");
   const host = hostFor(cfg);
   const { streamMode } = loadConfig();
@@ -223,8 +159,8 @@ async function auto(cfg) {
     tab = rootPane = ""; slots = []; peakActive = 0; allDoneAt = 0;
   };
   process.on("exit", () => { if (receiptDir) fs.rmSync(receiptDir, { recursive: true, force: true }); });
-  process.on("SIGTERM", () => { try { if (tab) closeTab(tab); } finally { process.exit(0); } });
-  console.log(`streamer (${mux}, ${cfg.host}, ${streamMode}, session ${String(cfg.session).slice(0, 8)}): waiting for subagents`);
+  process.on("SIGTERM", () => { try { if (tab) mux.closeTab(tab); } finally { process.exit(0); } });
+  console.log(`streamer (${muxName}, ${cfg.host}, ${streamMode}, session ${String(cfg.session).slice(0, 8)}): waiting for subagents`);
   for (let first = true; ; first = false) {
     for (const slot of [...slots]) {
       const a = slot.assignment;
@@ -241,10 +177,9 @@ async function auto(cfg) {
       if (!matches && Date.now() - a.launchedAt < FOLLOW_START_TIMEOUT_MS) continue;
       console.error(`follower failed for ${a.task.id}: ${matches ? r.error ?? "exited without final drain" : "startup receipt missing"}`);
       // A failed drain is not reusable. Destroy its pane instead of handing its output to another task.
-      try { closePane(slot.paneId); }
+      try { mux.closePane(slot.paneId); }
       catch (error) {
-        try { checkPane(slot.paneId); console.error(`pane cleanup failed: ${error.message}`); continue; }
-        catch {}
+        if (mux.hasPane(slot.paneId)) { console.error(`pane cleanup failed: ${error.message}`); continue; }
       }
       fs.rmSync(a.receiptPath, { force: true });
       slots.splice(slots.indexOf(slot), 1);
@@ -256,17 +191,14 @@ async function auto(cfg) {
     const active = tasks.filter((t) => isActive(t.status) && !settled(t));
     const wake = tasks.some((t) => !observed.has(t.id) ? !first || !settled(t) : isActive(t.status) && !observed.get(t.id));
     for (const t of tasks) observed.set(t.id, isActive(t.status));
-    if (tab) {
-      try { checkTab(tab); }
-      catch {
-        forgetTab();
-        openRequested = false;
-      }
+    if (tab && !mux.hasTab(tab)) {
+      forgetTab();
+      openRequested = false;
     }
     if (wake) openRequested = true;
     if (!tab && openRequested) {
       try {
-        ({ tab, pane: rootPane } = openTab(`${mainTabLabel()}-subagents`, `${SELF} ${mode.root} ${enc(cfg)}`));
+        ({ tab, pane: rootPane } = mux.openTab(`${mux.mainTabLabel()}-subagents`, `${SELF} ${mode.root} ${enc(cfg)}`));
         openRequested = false;
       } catch (error) { console.error(`tab open failed: ${error.message}`); }
     }
@@ -279,15 +211,15 @@ async function auto(cfg) {
         try {
           if (!slot && slots.length < peakActive) {
             const from = slots.at(-1)?.paneId ?? rootPane;
-            slot = { paneId: openPane(from, slots.length + 1), initialShell: true, assignment: null };
+            slot = { paneId: mux.openPane(from, slots.length + 1), assignment: null };
             slots.push(slot);
           }
           if (!slot) continue;
           receiptDir ??= fs.mkdtempSync(path.join(os.tmpdir(), "subagent-streamer-"));
           const token = randomUUID();
-          const assignment = { spec: t.spec, token, receiptPath: path.join(receiptDir, token), paneId: slot.paneId, label: t.name, hostPid: cfg.pid, backend: mux };
+          const assignment = { spec: t.spec, token, receiptPath: path.join(receiptDir, token), paneId: slot.paneId, label: t.name, hostPid: cfg.pid, backend: muxName };
           slot.assignment = { task: t, token, receiptPath: assignment.receiptPath, launchedAt: Date.now() };
-          startPane(slot, assignment);
+          mux.run(slot.paneId, `${SELF} follow ${enc(assignment)}`);
           allDoneAt = 0;
           console.log(`${streamMode}: added ${t.id}`);
         } catch (error) { console.error(`failed for ${t.id}: ${error.message}`); }
@@ -297,7 +229,7 @@ async function auto(cfg) {
       if (!tasks.every(settled) || slots.some((s) => s.assignment)) allDoneAt = 0;
       else if (!allDoneAt) allDoneAt = Date.now();
       else if (Date.now() - allDoneAt >= CLOSE_AFTER_MS) {
-        try { closeTab(tab); } catch (error) { console.error(`close failed: ${error.message}`); }
+        try { mux.closeTab(tab); } catch (error) { console.error(`close failed: ${error.message}`); }
         console.log("all subagents done: closed tab");
         forgetTab(); openRequested = false;
       }
