@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { encodeArg } from "./command.mjs";
 
 const STREAMER = fileURLToPath(new URL("./streamer.mjs", import.meta.url));
-const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+export const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 
 export function paneFiles(pane) {
   const dir = path.join(os.tmpdir(), "herdr-subagent-streamer");
@@ -25,8 +25,7 @@ export function paneFiles(pane) {
 export function existingStreamer({ pane, owner, session }) {
   let cur; try { cur = JSON.parse(fs.readFileSync(paneFiles(pane).pid, "utf8")); } catch { return null; }
   if (!cur || !alive(cur.pid)) return null;
-  const curOwner = cur.owner || undefined; // the bash launcher wrote owner 0 for a hand-started streamer
-  if ((!curOwner || alive(curOwner)) && (curOwner !== owner || cur.session === session)) return cur.pid;
+  if ((!cur.owner || alive(cur.owner)) && (cur.owner !== owner || cur.session === session)) return cur.pid;
   process.kill(cur.pid);
   return null;
 }

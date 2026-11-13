@@ -119,8 +119,7 @@ function resolveOmp({ feed, id }) {
 // The extension writes the main agent's session file at the head of the feed, for omo and omp alike.
 const feedTranscript = ({ feed }) => foldFeed(feed).sessionFile;
 
-// ---------- registry ----------
-// diesWithAgent: omp subagents run inside the agent process; omo and opencode ones are separate sessions.
+// omp subagents run inside the agent process; omo and opencode subagents are separate sessions.
 const HOSTS = {
   omo: { list: listOmo, resolve: resolveOmo, mainTranscript: feedTranscript, diesWithAgent: false },
   omp: { list: listOmp, resolve: resolveOmp, mainTranscript: feedTranscript, diesWithAgent: true },

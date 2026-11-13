@@ -17,6 +17,7 @@ import { decodeArg, encodeArg, selfCommand } from "./command.mjs";
 import { detectMux, muxFor } from "./mux.mjs";
 import { createFollowers, follow } from "./follower.mjs";
 import { createSession } from "./session.mjs";
+import { alive } from "./launch.mjs";
 
 const SELF = selfCommand(process.execPath, fileURLToPath(import.meta.url), process.platform);
 const CLOSE_AFTER_MS = Number(process.env.HERDR_SUBAGENT_STREAMER_CLOSE_MS ?? 5000); // 0 keeps the tab open
@@ -29,7 +30,6 @@ const MODES = {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const C = (n, s) => `\x1b[${n}m${s}\x1b[0m`;
-const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 
 // ---------- board ----------
 const GLYPH = { running: C(33, "*"), started: C(33, "*"), completed: C(32, "+"), failed: C(31, "x"), aborted: C(31, "x"), cancelled: C(31, "x") };

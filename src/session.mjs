@@ -7,7 +7,7 @@
 import { TERMINAL, isActive } from "./hosts.mjs";
 
 export function createSession({ host, mux, followers, rootCommand, transcripts, modeName, hostPid, closeAfterMs, alive, now = Date.now, log = console }) {
-  const observed = new Map(); // task id -> whether it was active at the last tick
+  const wasActive = new Map();
   let tab = "", rootPane = "", slots = [], peakActive = 0, allDoneAt = 0, openRequested = false, first = true;
 
   const forgetTab = () => {
@@ -68,8 +68,8 @@ export function createSession({ host, mux, followers, rootCommand, transcripts, 
     const active = tasks.filter((t) => isActive(t.status) && !settled(t));
     // A new task, or a known one turning active, opens the tab. At startup, history that has already
     // settled does not.
-    const wake = tasks.some((t) => !observed.has(t.id) ? !first || !settled(t) : isActive(t.status) && !observed.get(t.id));
-    for (const t of tasks) observed.set(t.id, isActive(t.status));
+    const wake = tasks.some((t) => !wasActive.has(t.id) ? !first || !settled(t) : isActive(t.status) && !wasActive.get(t.id));
+    for (const t of tasks) wasActive.set(t.id, isActive(t.status));
     first = false;
 
     if (tab && !mux.hasTab(tab)) forgetTab();

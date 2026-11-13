@@ -50,8 +50,6 @@ test("a hand-started streamer is kept for its session and replaced for another",
   const streamer = sleeper(t);
   pidFile("d", { pid: streamer.pid, session: "S1" });
   assert.equal(existingStreamer({ pane: "d", session: "S1" }), streamer.pid);
-  pidFile("d", { pid: streamer.pid, owner: 0, session: "S1" });
-  assert.equal(existingStreamer({ pane: "d", session: "S1" }), streamer.pid, "the bash launcher's owner 0 means no owner");
   assert.equal(existingStreamer({ pane: "d", session: "S2" }), null);
   await once(streamer, "exit");
   assert.equal(alive(streamer.pid), false);

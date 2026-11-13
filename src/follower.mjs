@@ -11,6 +11,7 @@ import { randomUUID } from "node:crypto";
 import { isActive, resolve } from "./hosts.mjs";
 import { muxFor } from "./mux.mjs";
 import { createTail } from "./transcript.mjs";
+import { alive as pidAlive } from "./launch.mjs";
 
 const POLL_MS = 400;
 const START_TIMEOUT_MS = 10000;
@@ -20,10 +21,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const C = (n, s) => `\x1b[${n}m${s}\x1b[0m`;
 const clip = (s, n) => (s.length > n ? s.slice(0, n) + "..." : s).replace(/\s+/g, " ");
 const flush = (text = "") => new Promise((ok, fail) => process.stdout.write(text, (err) => err ? fail(err) : ok()));
-const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 const readReceipt = (file) => { try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return null; } };
 
-// ---------- pane side ----------
 // hostPid is set only for hosts whose subagents die with the agent: its exit ends the transcript.
 export async function follow({ spec, token, receiptPath, paneId, label, hostPid, backend }) {
   const receipt = (phase, details = {}) => {
@@ -46,7 +45,6 @@ export async function follow({ spec, token, receiptPath, paneId, label, hostPid,
       drain(transcript);
       const hostGone = hostPid && !pidAlive(hostPid);
       if (!isActive(status) || hostGone) {
-        // Preserve the existing final complete-record pass, not an unbounded late-write promise.
         drain(resolve(spec).transcript);
         console.log(C(1, `== ${hostGone ? "host exited" : status ?? "inactive"} ==`));
         await flush();
@@ -72,8 +70,6 @@ function print(e) {
   }
 }
 
-// ---------- streamer side ----------
-// command(assignment) is the shell command that runs follow(assignment) in a pane.
 export function createFollowers({ mux, backend, command, hostPid, now = Date.now, alive = pidAlive }) {
   let dir;
   return {
