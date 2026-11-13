@@ -71,7 +71,7 @@ omp plugin install 'github:pararang/herdr-subagent-streamer'
 
 Restart OMP after installing, then start a session inside Herdr or tmux and spawn subagents as usual. This plugin loads an extension module, so `/reload-plugins` alone is not enough.
 
-To pin a release, append its published tag to the source, for example `'github:pararang/herdr-subagent-streamer#v0.1.0'` once that tag exists. To upgrade a Git installation, run `omp plugin install` again with the source and tag you want, then restart OMP.
+To pin a release, see [Install a specific version](#install-a-specific-version).
 
 For local development:
 
@@ -125,6 +125,33 @@ omo install ./herdr-subagent-streamer
 
 `omo install -l` (project-local) works too, but omo only loads project-local packages after you approve them: start with `omo --approve`.
 
+### Install a specific version
+
+Each release is a Git tag named `v<version>`. List them with `git ls-remote --tags https://github.com/pararang/herdr-subagent-streamer`, or on the [Releases page](https://github.com/pararang/herdr-subagent-streamer/releases). The opencode host is available from `v0.2.0` onward.
+
+**OMP.** Append the tag to the GitHub source, then restart OMP:
+
+```bash
+omp plugin install 'github:pararang/herdr-subagent-streamer#v0.2.0'
+```
+
+To switch versions, run the same command with another tag and restart OMP.
+
+**omo native and opencode.** Clone the tag, then install from the checkout as described in the sections above:
+
+```bash
+git clone --branch v0.2.0 https://github.com/pararang/herdr-subagent-streamer
+omo install ./herdr-subagent-streamer
+# opencode instead:
+ln -s "$PWD/herdr-subagent-streamer/opencode-plugin/herdr-subagent-streamer.js" ~/.config/opencode/plugins/
+```
+
+To switch versions, run `git checkout <tag>` in the clone. The install links the checkout, so no reinstall is needed.
+
+**Any host, from a release archive.** Download `herdr-subagent-streamer-<version>.tgz` from the release, extract it, and run `omp plugin install ./package` or `omo install ./package` from the extraction directory.
+
+After switching versions, restart each running agent session. A streamer that is already running keeps its loaded code until it restarts.
+
 ### Optional Herdr marketplace registration
 
 The [Herdr marketplace](https://herdr.dev/plugins/) discovers this repository through its `herdr-plugin` GitHub topic and root `herdr-plugin.toml`.
@@ -135,7 +162,7 @@ herdr plugin install pararang/herdr-subagent-streamer
 herdr plugin update pararang.subagent-streamer
 ```
 
-This is optional discovery metadata, not the streaming installation. It does not load the agent extension or start the streamer. Install the OMP plugin or omo extension above to enable streaming. The Herdr manifest has no build commands, startup hooks, actions, or panes; tmux users do not need it.
+This is optional discovery metadata, not the streaming installation. It does not load the agent extension or start the streamer, and it does not select a version. Install the OMP plugin or omo extension above to enable streaming. The Herdr manifest has no build commands, startup hooks, actions, or panes; tmux users do not need it.
 
 ## Use
 
