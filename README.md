@@ -145,7 +145,7 @@ For installations symlinked to this checkout, restart each running agent session
 
 ## How it works
 
-The extension (`extension/index.js`) runs when a session starts and launches `src/streamer.mjs` as a detached process for that session, then stops it on shutdown. The streamer finds subagents through a host adapter (`src/hosts.mjs`):
+The extension (`extension/index.js`) runs when a session starts and launches `src/streamer.mjs` as a detached process for that session, then stops it on shutdown. For opencode, `bin/streamer-here.sh` runs `src/here.mjs`, which launches the same streamer. Both launchers go through `src/launch.mjs`, which keeps one streamer per pane. The streamer finds subagents through a host adapter (`src/hosts.mjs`):
 
 | Host | Where subagent state comes from |
 |---|---|
@@ -157,6 +157,20 @@ In `hybrid` and `tail` mode, the streamer assigns active workers to transcript s
 The first pane is the graph in `hybrid` mode and the status board in `tail` mode. Both retain the host's full list of known subagents independently of transcript slot ownership. In `graph` mode, the tab has only the graph pane (`streamer.mjs graph`). The graph reads every available transcript incrementally. The task record's `parent_session_id` places each subagent under the agent that spawned it in omo. OMP subagents all hang off the main agent. Tool calls fill the cards, and `task_send` calls become message edges. A follow-up message to an agent's own child is counted on the child's card instead of getting a second edge.
 
 The streamer drives Herdr with `tab create`, `pane split`, `pane run`, and `tab close`. For tmux, it creates idle transcript panes with pane-local `remain-on-exit`, then uses `respawn-pane` to start each follower after the previous assignment exits.
+
+Each concern has one module:
+
+| Module | Owns |
+|---|---|
+| `src/session.mjs` | The tab, slot assignment and reuse, and closing once subagents settle. |
+| `src/follower.mjs` | The transcript pane process, and the receipt file that tells the session when a pane is free. |
+| `src/mux.mjs` | The Herdr and tmux commands. |
+| `src/hosts.mjs`, `src/opencode.mjs` | Where each host keeps subagent records and transcripts. |
+| `src/transcript.mjs` | Reading transcript JSONL incrementally. |
+| `src/graph.mjs` | The graph's model, layout, and drawing. |
+| `src/launch.mjs`, `src/here.mjs` | Starting one streamer per pane. |
+
+`GLOSSARY.md` defines the terms these modules use, such as worker, slot, and settled.
 
 ## Configuration
 
@@ -206,6 +220,8 @@ npm test        # node --test
 ```
 
 `test/streamer.test.mjs` drives the actual `auto` CLI with isolated lifecycle feeds and recording Herdr and tmux executables. The executables launch real follower commands and capture pane titles, rendered output, command exits, and tab lifecycle events. These tests do not connect to a real Herdr server or tmux session.
+
+`test/session.test.mjs` runs the session against an in-memory multiplexer and fake followers, so slot reuse, revival, and close timing are checked in milliseconds.
 
 ## Release
 
