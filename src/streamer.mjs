@@ -15,7 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { TERMINAL, foldFeed, hostFor, resolve } from "./hosts.mjs";
+import { TERMINAL, hostFor, resolve } from "./hosts.mjs";
 import { loadConfig } from "./config.mjs";
 import { MAIN, buildGraph, createActivity, render } from "./graph.mjs";
 import { selfCommand } from "./command.mjs";
@@ -63,7 +63,7 @@ async function follow(assignment) {
     while (true) {
       const { status, transcript } = resolve(spec);
       drain(transcript);
-      const hostGone = spec.host === "omp" && hostPid && !alive(hostPid);
+      const hostGone = hostPid && !alive(hostPid);
       if (!isActive(status) || hostGone) {
         // Preserve the existing final complete-record pass, not an unbounded late-write promise.
         drain(resolve(spec).transcript);
@@ -126,7 +126,7 @@ async function graph(cfg) {
   for (let frame = 0; ; frame++) {
     if (frame % 4 === 0) {
       const tasks = host.list();
-      track(MAIN, host.mainTranscript ? host.mainTranscript() : foldFeed(cfg.feed).sessionFile);
+      track(MAIN, host.mainTranscript());
       for (const t of tasks) track(t.id, resolve(t.spec).transcript);
       g = buildGraph({ session: cfg.session, tasks, acts });
     }
@@ -186,8 +186,7 @@ async function auto(cfg) {
     }
     const tasks = host.list();
     const hostGone = cfg.pid && !alive(cfg.pid);
-    // OMP workers die with their host; detached OMO workers may outlive it.
-    const settled = (t) => TERMINAL.includes(t.status) || (hostGone && cfg.host === "omp");
+    const settled = (t) => TERMINAL.includes(t.status) || (hostGone && host.diesWithAgent);
     const active = tasks.filter((t) => isActive(t.status) && !settled(t));
     const wake = tasks.some((t) => !observed.has(t.id) ? !first || !settled(t) : isActive(t.status) && !observed.get(t.id));
     for (const t of tasks) observed.set(t.id, isActive(t.status));
@@ -217,7 +216,7 @@ async function auto(cfg) {
           if (!slot) continue;
           receiptDir ??= fs.mkdtempSync(path.join(os.tmpdir(), "subagent-streamer-"));
           const token = randomUUID();
-          const assignment = { spec: t.spec, token, receiptPath: path.join(receiptDir, token), paneId: slot.paneId, label: t.name, hostPid: cfg.pid, backend: muxName };
+          const assignment = { spec: t.spec, token, receiptPath: path.join(receiptDir, token), paneId: slot.paneId, label: t.name, hostPid: host.diesWithAgent ? cfg.pid : undefined, backend: muxName };
           slot.assignment = { task: t, token, receiptPath: assignment.receiptPath, launchedAt: Date.now() };
           mux.run(slot.paneId, `${SELF} follow ${enc(assignment)}`);
           allDoneAt = 0;

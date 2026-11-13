@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { omoHost, ompHost, resolve } from "../src/hosts.mjs";
+import { hostFor, resolve } from "../src/hosts.mjs";
+
+const omoHost = (session) => hostFor({ host: "omo", session });
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "hss-"));
 
@@ -57,7 +59,7 @@ test("omp: folds lifecycle feed into status and falls back to the artifacts dir"
     { ts: 1500, id: "Fixer", agent: "task", status: "started", sessionFile: "/s/2026/Fixer.jsonl" },
   ].map((e) => JSON.stringify(e)).join("\n") + "\n");
 
-  const list = ompHost(feed).list();
+  const list = hostFor({ host: "omp", feed }).list();
   assert.deepEqual(list.map((t) => [t.id, t.status]), [["Scout", "completed"], ["Fixer", "running"]]);
   assert.equal(resolve(list[0].spec).transcript, "/s/2026/Scout.jsonl");
   assert.equal(resolve(list[1].spec).transcript, "/s/2026/Fixer.jsonl");
