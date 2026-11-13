@@ -139,3 +139,13 @@ test("child sessions since launch are listed and settle when they go idle", () =
   add("kid", 1, "idle", { outcome: "succeeded" });
   assert.equal(sessionStatus("kid"), "completed");
 });
+
+test("a session with no messages runs, and a non-success idle outcome fails it", () => {
+  insertSession.run("quiet", "p2", "quiet", "explore", now, now);
+  insertSession.run("bad", "p2", "bad", "explore", now, now);
+  add("bad", 0, "idle", { outcome: "aborted" }, now + 5);
+  assert.deepEqual(childSessions("p2").map((t) => [t.id, t.status, t.ended]), [
+    ["quiet", "running", undefined],
+    ["bad", "failed", new Date(now + 5).toISOString()],
+  ]);
+});

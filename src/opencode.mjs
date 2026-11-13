@@ -47,9 +47,7 @@ let db = null;
 try {
   const { DatabaseSync } = await import("node:sqlite");
   db = new DatabaseSync(dbPath(), { readOnly: true });
-} catch {
-  db = null;
-}
+} catch {}
 
 function cliQuery(sql) {
   const out = spawnSync("sqlite3", ["-readonly", "-json", dbPath(), sql], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
@@ -96,8 +94,7 @@ function settle(row) {
     `SELECT type, data, time_created FROM session_message WHERE session_id = ? ORDER BY seq DESC LIMIT 1`,
     [row.id],
   )[0];
-  if (!last) return { status: "running", endedAt: undefined };
-  if (last.type !== "idle") return { status: "running", endedAt: undefined };
+  if (last?.type !== "idle") return { status: "running", endedAt: undefined };
   const outcome = parse(last.data)?.outcome;
   return {
     status: outcome && outcome !== "succeeded" ? "failed" : "completed",
@@ -154,7 +151,6 @@ function recordsFor(row) {
   }
   if (row.type !== "assistant") return []; // idle, system, compaction and friends are not transcript lines
 
-  const out = [];
   const content = [];
   const results = [];
   for (const c of Array.isArray(data.content) ? data.content : []) {
@@ -181,8 +177,7 @@ function recordsFor(row) {
       }
     }
   }
-  if (content.length) out.push(wrap({ role: "assistant", content }));
-  return out.concat(results);
+  return content.length ? [wrap({ role: "assistant", content }), ...results] : results;
 }
 
 // An assistant message keeps changing until opencode stamps time.completed, even after newer

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // herdr-subagent-streamer: one multiplexer tab per session's subagents, in one of three stream modes:
-//   hybrid (default) graph plus reusable active-worker splits; tail board plus active-worker splits;
-//   graph  one pane drawing the agent flow graph
+//   hybrid (default)  graph plus reusable active-worker splits
+//   tail              board plus active-worker splits
+//   graph             one pane drawing the agent flow graph
 //   streamer.mjs auto  <cfg>    watch this session's subagents; open the tab (and splits in hybrid/tail mode)
 //   streamer.mjs board <cfg>    status list (root pane of the tab in tail mode)
 //   streamer.mjs graph <cfg>    flow graph (root pane of the tab in hybrid/graph mode)
