@@ -68,15 +68,12 @@ export function buildGraph({ session, tasks, acts }) {
   }
   for (const t of tasks) if (!byRef.has(t.name)) byRef.set(t.name, t.id);
 
-  const edges = [];
   for (const t of tasks) {
     const parent = bySession.get(t.parent);
-    const node = {
+    nodes.set(t.id, {
       id: t.id, name: t.name === t.id && t.description ? t.description : t.name, status: t.status,
       parent: parent && parent !== t.id ? parent : MAIN, started: t.started ?? t.created, ended: t.ended, msgIn: 0, ...stats(t.id),
-    };
-    nodes.set(t.id, node);
-    edges.push({ from: node.parent, to: t.id, kind: "spawn", count: 1, lastAt: Date.parse(node.started) || 0 });
+    });
   }
   // a record whose parent chain loops never reaches MAIN: hang it off MAIN so layout terminates
   for (const n of nodes.values()) {
@@ -86,7 +83,7 @@ export function buildGraph({ session, tasks, acts }) {
       seen.add(p);
     }
   }
-  for (const e of edges) if (e.kind === "spawn") e.from = nodes.get(e.to).parent;
+  const edges = tasks.map((t) => ({ from: nodes.get(t.id).parent, to: t.id, kind: "spawn", count: 1, lastAt: Date.parse(t.started ?? t.created) || 0 }));
 
   const msgs = new Map();
   for (const [from, a] of acts) {
@@ -135,7 +132,6 @@ export function layout(graph, cols) {
     }
     tile.width = width;
     tile.height = band + shelfHeight;
-    if (!tile.children.length) tile.height = 1;
     const firstShelf = tile.children.filter((child) => child.bandOffset === 1);
     const middle = firstShelf[(firstShelf.length - 1) >> 1];
     tile.rootSlot = middle ? middle.slotOffset + middle.rootSlot : 0;
