@@ -2,220 +2,78 @@
 
 ![Live subagent graph in Herdr](graph.gif)
 
-An **OMP plugin** for watching subagents work live in **Herdr or tmux**. Prompts, thinking, tool calls, and results stream into reusable transcript panes alongside a live agent graph.
+Watch subagents work live in **Herdr or tmux**. Each active subagent streams its prompts, thinking, tool calls, and results into a reusable transcript pane, next to a live graph of the whole session. Works with OMP, omo native, and opencode. Outside Herdr and tmux the plugin does nothing, so it is safe to install everywhere.
 
-Built for an OMP + Herdr workflow, with tmux as an alternative display backend and **omo native** support through the same extension. Install the plugin once; it starts the streamer automatically for each session.
+The streamer opens a tab named `<main agent's tab>-subagents` without taking focus, and closes it 5 seconds after every subagent finishes. If the agent exits first, the tab stays until its omo subagents finish, or closes right away with OMP, whose subagents die with it.
 
-Herdr and tmux have been smoke-tested in isolated real sessions with fixture lifecycle feeds. Host integration coverage is listed under [Tested](#tested).
+## Stream modes
 
-```
-tab "1"               tab "1-subagents"
-+-----------------+   +-------------------+-------------------+
-| main agent      |   | board (status)    | scout   (live)    |
-|                 |   |                   +-------------------+
-|                 |   |                   | fixer   (live)    |
-+-----------------+   +-------------------+-------------------+
-```
+| Mode | Panes |
+|---|---|
+| `hybrid` (default) | The graph, plus a transcript pane for each active worker. |
+| `tail` | A status board, plus the same transcript panes. |
+| `graph` | The graph only. |
 
-That is the `tail` stream mode. The `graph` mode puts the whole session in one pane instead: a flow graph with a card per agent, the main agent on top, spawn edges down to each subagent (nested ones under the subagent that spawned them), and `task_send` messages between subagents drawn as magenta `├─▶` edges. Edges animate while their agent is working. Inspired by [zoetrope](https://github.com/furkankly/zoetrope).
-
-```
- subagents graph 01a18b81 1 running · 1 settled
-
- ╭─ main ─────────────────╮
- │ ~ waiting              │
- │ 2 calls                │
- ╰────────────┬───────────╯
-              ●
-              ├──●───●───●───●───●───●───●┐
-              ▼                           ▼
- ╭─ alpha ────────────────╮  ╭─ beta ─────────────────╮
- │ + completed 14s        │  │ * running 30s          │
- │ 4 calls · 1 msg        │  │ > eval · 2 calls       │
- ╰────────────────────────╯  ╰────────────────────────╯
-
- ● active   ─ spawn   ─ task_send
-```
-
-The default `hybrid` mode combines the two. The graph is the tab's first pane, with live transcript panes next to it. The graph keeps known subagents in view after they finish, while transcript panes follow active workers.
-
-```
-tab "1-subagents" (hybrid)
-+-------------------+-------------------+
-| graph             | scout   (live)    |
-|                   +-------------------+
-|                   | fixer   (live)    |
-+-------------------+-------------------+
-```
-
-- Tab name: `<main agent's tab name>-subagents`, read at runtime.
-- Transcript panes belong only to workers observed as `started` or `running`. Queued, pending, unknown, and terminal-only workers do not get transcript panes.
-- A finished worker's pane can retain its final output until another worker needs it. The next active worker reuses that physical pane with a new title and cleared output. The graph or status board stays separate.
-- The transcript pane count grows only to the peak number of active workers observed in that tab. Three active workers and two queued workers use three transcript panes, not five. The streamer does not change the host's concurrency setting.
-- Closes itself 5 seconds after every subagent in it has finished. If the agent exits first, the tab stays until its subagents finish (omo) or closes right away (omp, whose subagents die with it).
-- Outside herdr/tmux the plugin does nothing, so it is safe to install everywhere.
+Only workers that are `started` or `running` get a transcript pane. A finished worker's pane keeps its output until another worker needs it, and the pane count grows only to the peak number of active workers. The graph keeps every known subagent in view, including finished ones, and draws `task_send` messages between subagents.
 
 ## Install
 
-Requirements: Herdr (`herdr` on PATH) or tmux, plus `bun` or `node` >= 18 on PATH. No npm dependencies.
+Requirements: Herdr (`herdr` on PATH) or tmux, plus `bun` or `node` >= 18. No npm dependencies. Native Windows Herdr panes assume PowerShell.
 
-Native Windows Herdr pane commands assume PowerShell as the pane shell. Background Herdr commands suppress console windows.
-
-### OMP (recommended)
-
-Install directly from GitHub—no Herdr plugin registration or marketplace catalog is required:
+### OMP
 
 ```bash
 omp plugin install 'github:pararang/herdr-subagent-streamer'
 ```
 
-Restart OMP after installing, then start a session inside Herdr or tmux and spawn subagents as usual. This plugin loads an extension module, so `/reload-plugins` alone is not enough.
-
-To pin a release, see [Install a specific version](#install-a-specific-version).
-
-For local development:
-
-```bash
-git clone https://github.com/pararang/herdr-subagent-streamer
-omp plugin install ./herdr-subagent-streamer
-# Or load the extension for one run:
-omp -e ./herdr-subagent-streamer/extension/index.js
-```
-
-The local install links the checkout. See [OMP's plugin documentation](https://omp.sh/docs/plugins) for plugin management.
-
-### opencode
-
-opencode keeps its subagents as child sessions in `~/.local/share/opencode/opencode.db`, so this
-host reads them from there and writes each child's messages out as the transcript the follower
-already prints. Nothing is written to opencode's store.
-
-```bash
-ln -s "$PWD/opencode-plugin/herdr-subagent-streamer.js" ~/.config/opencode/plugins/
-```
-
-The plugin needs herdr: it does nothing in tmux or a plain terminal. Its `setup` starts a watcher
-that asks herdr which session the pane runs and launches the streamer on that session's first
-subagent, so a pane that never spawns one costs a sleeping shell. The streamer then picks up later
-subagents too, and stops once opencode has exited and its subagents have settled.
-
-Start it by hand instead with:
-
-```bash
-bin/streamer-here.sh            # this pane, now
-bin/streamer-here.sh --watch    # wait for the first subagent
-```
-
-A manual run streams until you stop it: kill the pid it prints. `STREAMER_SESSION=<id>` pins the
-session when herdr does not register one, which is the case for `opencode run`.
-
-Requirements for the opencode host:
-
-- macOS or Linux, because the plugin starts the launcher through bash.
-- `bun`, or a node with `node:sqlite` (node >= 22.13, or 22.5+ with `--experimental-sqlite`). Without
-  `node:sqlite`, the `sqlite3` CLI on PATH.
+Restart OMP. `/reload-plugins` alone is not enough, because the plugin loads an extension module.
 
 ### omo native
 
 ```bash
 omo install git:github.com/pararang/herdr-subagent-streamer
-# Or from a checkout:
-omo install ./herdr-subagent-streamer
 ```
 
-`omo install -l` (project-local) works too, but omo only loads project-local packages after you approve them: start with `omo --approve`.
+`omo install -l` installs for one project. omo loads project-local packages only after you approve them, so start with `omo --approve`.
 
-### Install a specific version
+### opencode
 
-Each release is a Git tag named `v<version>`. List them with `git ls-remote --tags https://github.com/pararang/herdr-subagent-streamer`, or on the [Releases page](https://github.com/pararang/herdr-subagent-streamer/releases). The opencode host is available from `v0.2.0` onward.
-
-**OMP.** Append the tag to the GitHub source, then restart OMP:
+Clone the repository, then link the plugin:
 
 ```bash
-omp plugin install 'github:pararang/herdr-subagent-streamer#v0.2.0'
-```
-
-To switch versions, run the same command with another tag and restart OMP.
-
-**omo native and opencode.** Clone the tag, then install from the checkout as described in the sections above:
-
-```bash
-git clone --branch v0.2.0 https://github.com/pararang/herdr-subagent-streamer
-omo install ./herdr-subagent-streamer
-# opencode instead:
+git clone https://github.com/pararang/herdr-subagent-streamer
 ln -s "$PWD/herdr-subagent-streamer/opencode-plugin/herdr-subagent-streamer.js" ~/.config/opencode/plugins/
 ```
 
-To switch versions, run `git checkout <tag>` in the clone. The install links the checkout, so no reinstall is needed.
+opencode keeps subagents as child sessions in `~/.local/share/opencode/opencode.db`. The plugin starts a watcher that launches the streamer on the pane's first subagent. It needs Herdr, macOS or Linux, and `bun` or a node with `node:sqlite` (node >= 22.13). Without `node:sqlite`, it needs the `sqlite3` CLI.
 
-**Any host, from a release archive.** Download `herdr-subagent-streamer-<version>.tgz` from the release, extract it, and run `omp plugin install ./package` or `omo install ./package` from the extraction directory.
+To start the streamer by hand, run `bin/streamer-here.sh` for this pane now, or `bin/streamer-here.sh --watch` to wait for the first subagent. A manual run streams until you kill the pid it prints. Set `STREAMER_SESSION=<id>` when Herdr does not register a session, as with `opencode run`.
 
-After switching versions, restart each running agent session. A streamer that is already running keeps its loaded code until it restarts.
+### Install a specific version
 
-### Optional Herdr marketplace registration
+Releases are Git tags named `v<version>`. List them on the [Releases page](https://github.com/pararang/herdr-subagent-streamer/releases). The opencode host exists from `v0.2.0` onward.
 
-The [Herdr marketplace](https://herdr.dev/plugins/) discovers this repository through its `herdr-plugin` GitHub topic and root `herdr-plugin.toml`.
+- **OMP.** Add the tag to the source, then restart OMP: `omp plugin install 'github:pararang/herdr-subagent-streamer#v0.2.0'`.
+- **omo native and opencode.** Clone the tag with `git clone --branch v0.2.0 https://github.com/pararang/herdr-subagent-streamer`, then install from the checkout (`omo install ./herdr-subagent-streamer`, or the opencode link above). Switch versions with `git checkout <tag>` in the clone.
+- **Release archive.** Extract the release's `.tgz`, then run `omp plugin install ./package` or `omo install ./package`.
 
-```bash
-herdr plugin install pararang/herdr-subagent-streamer
-# Update an existing registration:
-herdr plugin update pararang.subagent-streamer
-```
+After you switch versions, restart each running agent session. A streamer that is already running keeps its loaded code until it restarts.
 
-This is optional discovery metadata, not the streaming installation. It does not load the agent extension or start the streamer, and it does not select a version. Install the OMP plugin or omo extension above to enable streaming. The Herdr manifest has no build commands, startup hooks, actions, or panes; tmux users do not need it.
-
-## Use
-
-Start OMP in a Herdr or tmux pane and spawn subagents as usual. Known subagents open the `-subagents` overview tab without requesting focus. In `hybrid` or `tail` mode, active workers receive reusable transcript panes. In `graph` mode, the tab has only the graph. The same behavior is available when running omo native.
-
-For installations symlinked to this checkout, restart each running agent session after an update. Each linked profile uses the same source files, but an existing detached streamer keeps its loaded code until it restarts.
-
-## How it works
-
-The extension (`extension/index.js`) runs when a session starts and launches `src/streamer.mjs` as a detached process for that session, then stops it on shutdown. For opencode, `bin/streamer-here.sh` runs `src/here.mjs`, which launches the same streamer. Both launchers go through `src/launch.mjs`, which keeps one streamer per pane. The streamer finds subagents through a host adapter (`src/hosts.mjs`):
-
-| Host | Where subagent state comes from |
-|---|---|
-| omo native | Polls `$OMO_CODING_AGENT_DIR/projects/*/senpi-task/tasks/*.json` (default `~/.omo/agent`) and tails each child's transcript under `children/<id>/sessions/<id>/`. |
-| omp | The extension forwards the `task:subagent:lifecycle` event (`id`, `status`, `sessionFile`) to a feed file in the temp dir; the transcript is the event's `sessionFile`, or `<session file minus .jsonl>/<id>.jsonl`. |
-
-In `hybrid` and `tail` mode, the streamer assigns active workers to transcript slots. Each slot owns a physical pane and runs a follower until its worker settles. Before reusing the pane, the streamer waits for the follower to drain the available complete transcript records, flush its output, and exit. The next assignment clears the old viewport and scrollback before showing the new worker's title and transcript. A worker that becomes active again can receive a slot again, including after the tab closes. Its transcript can replay on revival.
-
-The first pane is the graph in `hybrid` mode and the status board in `tail` mode. Both retain the host's full list of known subagents independently of transcript slot ownership. In `graph` mode, the tab has only the graph pane (`streamer.mjs graph`). The graph reads every available transcript incrementally. The task record's `parent_session_id` places each subagent under the agent that spawned it in omo. OMP subagents all hang off the main agent. Tool calls fill the cards, and `task_send` calls become message edges. A follow-up message to an agent's own child is counted on the child's card instead of getting a second edge.
-
-The streamer drives Herdr with `tab create`, `pane split`, `pane run`, and `tab close`. For tmux, it creates idle transcript panes with pane-local `remain-on-exit`, then uses `respawn-pane` to start each follower after the previous assignment exits.
-
-Each concern has one module:
-
-| Module | Owns |
-|---|---|
-| `src/session.mjs` | The tab, slot assignment and reuse, and closing once subagents settle. |
-| `src/follower.mjs` | The transcript pane process, and the receipt file that tells the session when a pane is free. |
-| `src/mux.mjs` | The Herdr and tmux commands. |
-| `src/hosts.mjs`, `src/opencode.mjs` | Where each host keeps subagent records and transcripts. |
-| `src/transcript.mjs` | Reading transcript JSONL incrementally. |
-| `src/graph.mjs` | The graph's model, layout, and drawing. |
-| `src/launch.mjs`, `src/here.mjs` | Starting one streamer per pane. |
-
-`GLOSSARY.md` defines the terms these modules use, such as worker, slot, and settled.
+Registering with the Herdr marketplace (`herdr plugin install pararang/herdr-subagent-streamer`) only adds discovery metadata. It does not enable streaming or select a version.
 
 ## Configuration
 
-`~/.config/herdr-subagent-streamer/config.json` (or under `$XDG_CONFIG_HOME`):
+Set the stream mode in `~/.config/herdr-subagent-streamer/config.json`, or under `$XDG_CONFIG_HOME`:
 
 ```json
 { "streamMode": "tail" }
 ```
 
-| Key | Values | Default | Meaning |
-|---|---|---|---|
-| `streamMode` | `hybrid`, `tail`, `graph` | `hybrid` | `hybrid` has a graph plus reusable active-worker transcript panes. `tail` has a status board plus the same transcript panes. `graph` has only the graph pane. An unknown value logs a warning and falls back to `hybrid`. |
-
-The config is read when the streamer starts, so a change applies to the next agent session.
+The config is read when the streamer starts, so a change applies to the next agent session. An unknown value logs a warning and falls back to `hybrid`.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `HERDR_SUBAGENT_STREAMER_STREAM_MODE` | config file, else `hybrid` | Overrides `streamMode`. An unknown value falls back to `hybrid`. |
+| `HERDR_SUBAGENT_STREAMER_STREAM_MODE` | config file, else `hybrid` | Overrides `streamMode`. |
 | `HERDR_SUBAGENT_STREAMER_CLOSE_MS` | `5000` | Close the tab this long after all subagents settle. `0` keeps it open. |
 | `HERDR_SUBAGENT_STREAMER_HOST` | `omo` when `OMO_NATIVE=1`, else `omp` | Force the host adapter. |
 | `HERDR_SUBAGENT_STREAMER_MUX` | `herdr` when `HERDR_ENV=1`, else `tmux` when `$TMUX` is set | Force the multiplexer. |
@@ -224,72 +82,44 @@ The streamer's log is `<tmpdir>/herdr-subagent-streamer/<pane>.log`.
 
 ## Limits
 
-- Hosts are polled about once a second. A short task that finishes between polls and is never observed as active gets no transcript pane. It can still appear in the graph or status board if the host reports it.
-- OMP emits `started` events only for detached background spawns. A blocking spawn first appears after it has finished, so it gets no transcript pane.
-- omo only: a detached subagent whose parent already exited keeps `status: running` in omo's record. The streamer treats a transcript that ends in a plain assistant reply and has been quiet for 3 seconds as finished.
-- Tasks that are already terminal when discovered get no transcript pane. Queued tasks remain in the graph or status board only if the host exposes them. The streamer does not discover queued OMP tasks beyond the lifecycle feed.
-- The splits are transcript tails, not herdr agents: no working/idle badge and no typing into them.
-- A large number of simultaneously active workers makes small transcript panes. Completed workers do not add panes. The graph adapts to its own pane width and wraps whole subtrees onto additional rows. Resizing the pane reflows the cards. Extremely narrow panes shorten card text. Graphs taller than the pane are still cut off at the bottom, with no scrolling yet.
-- It reads each host's on-disk layout and event payloads, which are not stable public APIs. If a host update breaks it, check `src/hosts.mjs` first.
+- Hosts are polled about once a second. A task that finishes between polls without being seen as active gets no transcript pane. It can still appear in the graph or board.
+- Queued tasks and tasks already finished when discovered get no transcript pane. OMP queued tasks are not discovered at all, because the streamer sees only the lifecycle feed.
+- OMP emits `started` events only for detached background spawns. A blocking spawn first appears after it finishes.
+- omo keeps `status: running` for a detached subagent whose parent exited. The streamer treats such a transcript as finished once it ends in a plain assistant reply and has been quiet for 3 seconds.
+- Transcript panes are tails, not Herdr agents. They have no working or idle badge, and you cannot type into them.
+- A graph taller than its pane is cut off at the bottom. There is no scrolling yet.
+- The streamer reads each host's on-disk layout and event payloads, which are not stable public APIs. If a host update breaks it, check `src/hosts.mjs` first.
 
-## Tested
-
-- omo native 5.1.33: installed with `omo install -l --approve`; a real session spawned two subagents, the tab opened with a board plus two live splits, and it closed itself after they finished.
-- omp 18.10.4: installed with `omp plugin install`; the extension loads, `session_start` fires, a `task:subagent:lifecycle` event emitted on omp's event bus reaches the feed, and the tab opens and closes.
-- OMP 18.14.1: isolated local installs from the checkout and an extracted `npm pack` archive both appear as enabled plugins with the extension entry point in `omp plugin list --json`. GitHub install syntax was checked with `--dry-run`; this check did not fetch the remote repository or start an agent session.
-- Live OMP session in herdr: four concurrent subagents streamed into separate panes, completed, and triggered automatic tab closure. The graph renderer showed all six fixture agents at 73 and 43 columns in a real herdr pane and reflowed after resizing. The streaming tab took focus when it opened, contrary to the intended no-focus behavior.
-- Herdr 0.9.5 and tmux 3.8: isolated real sessions with OMP-shaped lifecycle feeds verified three active transcript panes, queued-worker exclusion, same-pane A-to-D and B-to-E handoffs, and cleared replacement output. Herdr also verified revival, graph-only history, and automatic closure. tmux verified operation with a retained Herdr environment, `default-command=true`, and reopening after a manual window close.
+Tested with omo native 5.1.33, OMP 18.10.4 and 18.14.1, Herdr 0.9.5, and tmux 3.8.
 
 ## Develop
 
 ```bash
-npm test        # node --test
+npm test
 ```
 
-`test/streamer.test.mjs` drives the actual `auto` CLI with isolated lifecycle feeds and recording Herdr and tmux executables. The executables launch real follower commands and capture pane titles, rendered output, command exits, and tab lifecycle events. These tests do not connect to a real Herdr server or tmux session.
+| Module | Owns |
+|---|---|
+| `src/session.mjs` | The tab, slot assignment and reuse, and closing once subagents settle. |
+| `src/follower.mjs` | The transcript pane process, and the receipt file that tells the session a pane is free. |
+| `src/mux.mjs` | The Herdr and tmux commands. |
+| `src/hosts.mjs`, `src/opencode.mjs` | Where each host keeps subagent records and transcripts. |
+| `src/transcript.mjs` | Reading transcript JSONL incrementally. |
+| `src/graph.mjs` | The graph's model, layout, and drawing. |
+| `src/launch.mjs`, `src/here.mjs` | Starting one streamer per pane. |
+| `extension/index.js`, `opencode-plugin/` | The agent-side entry points that start the streamer. |
 
-`test/session.test.mjs` runs the session against an in-memory multiplexer and fake followers, so slot reuse, revival, and close timing are checked in milliseconds.
+`GLOSSARY.md` defines the terms these modules use, such as worker, slot, and settled.
+
+`test/streamer.test.mjs` drives the real `auto` CLI against recording Herdr and tmux executables, without a real Herdr server or tmux session. `test/session.test.mjs` runs the session against an in-memory multiplexer and fake followers, so slot reuse, revival, and close timing are checked in milliseconds.
 
 ## Release
 
-Releases use Git tags named `v<version>`, such as `v0.1.0` or
-`v0.2.0-rc.1`. The version must match both `package.json` and
-`herdr-plugin.toml`. Prerelease identifiers follow SemVer; build metadata
-(`+...`) is not supported in release tags.
+1. Set `version` to the same value in `package.json` and `herdr-plugin.toml`.
+2. Run `npm run release:check -- v<version>` and `npm test`.
+3. Commit, then tag and push: `git tag -a v<version> -m "Release v<version>" && git push origin v<version>`.
 
-From the branch you intend to release:
-
-1. Update `version` in both files to the same value.
-2. Run the checks locally:
-
-   ```bash
-   npm run release:check -- v0.1.0
-   npm test
-   npm pack --dry-run
-   ```
-
-3. Commit the version changes and push that commit.
-4. Tag that commit and push the tag:
-
-   ```bash
-   git tag -a v0.1.0 -m "Release v0.1.0"
-   git push origin v0.1.0
-   ```
-
-Replace `0.1.0` with the version being released. Pushing the tag starts
-`.github/workflows/release.yml`, which validates both versions, runs the
-tests, and packages the tagged checkout with `npm pack`. Only after those
-steps succeed does it create a GitHub Release with generated release notes
-and a `herdr-subagent-streamer-<version>.tgz` attachment. Tags with a
-prerelease suffix create GitHub prereleases and do not become the latest
-release. The workflow uses the repository's `GITHUB_TOKEN` with
-`contents: write`; no additional publishing secret is needed.
-
-The workflow does not publish to npm. Existing Git and checkout installs
-remain available. To install a release archive, download its `.tgz` from
-[GitHub Releases](https://github.com/pararang/herdr-subagent-streamer/releases),
-extract it, then run `omp plugin install ./package` (or
-`omo install ./package` for omo native) from the extraction directory.
+Pushing the tag starts `.github/workflows/release.yml`. It validates both versions, runs the tests, packs the checkout with `npm pack`, and creates a GitHub Release with the `.tgz` attached. A tag with a prerelease suffix, such as `v0.3.0-rc.1`, creates a prerelease. The workflow does not publish to npm.
 
 ## License
 
