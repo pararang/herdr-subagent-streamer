@@ -36,5 +36,9 @@ export default function herdrSubagentStreamer(pi) {
       try { fs.appendFileSync(feed, JSON.stringify({ ts: Date.now(), id: p.id, agent: p.agent, status: p.status, sessionFile: p.sessionFile }) + "\n"); } catch {}
     });
   }
-  pi.on("session_start", (_e, ctx) => { if (ctx.agent?.kind !== "sub") start(ctx); });
+  // /new, /resume and /fork keep the process and fire session_switch; branching fires session_branch. Neither refires
+  // session_start, so without these the streamer stays on the first session and its feed keeps every later session's subagents.
+  for (const event of ["session_start", "session_switch", "session_branch"]) {
+    pi.on(event, (_e, ctx) => { if (ctx.agent?.kind !== "sub") start(ctx); });
+  }
 }
